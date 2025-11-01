@@ -2,7 +2,6 @@
 # -*- coding:utf-8 -*-
 """
 Created on 2025/11/1 15:12
-@version : 1.0.0
 @author  : William_Trouvaille
 @function: 日志配置模块
 """

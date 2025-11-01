@@ -159,3 +159,28 @@ ckpt_manager.save_epoch_checkpoint(state, current_epoch)
 
 * **`state` (dict)**: `Ctrl+C` 被按下时，由 `main.py` 构建的当前状态字典。
 * **功能**: 将 `state` 保存为 `interrupt_checkpoint.pth`。
+
+
+## 数据处理 (`data.py`)
+
+### `load_dataset_info(dataset_name, data_path)`
+
+**作用**: 加载 `torch.utils.data.Dataset` 对象并返回相关的元数据。
+
+* **`dataset_name` (str)**: 要加载的数据集名称 (例如: `"CIFAR10"`, `"MNIST"`).
+* **`data_path` (str)**: 数据存储的根目录 (例如: `"../data"`).
+* **返回** (dict):
+  一个包含数据集和元数据的字典。
+    ```python
+    info = {
+        'dst_train': <Dataset object>,
+        'dst_test': <Dataset object>,
+        'im_size': (32, 32),
+        'channel': 3,
+        'num_classes': 10,
+        'class_names': ['airplane', ...],
+        'mean': [0.4914, ...],
+        'std': [0.2023, ...]
+    }
+    ```
+* **注意**: 此函数**不会**创建 `DataLoader`。创建 `DataLoader` 是调用方 (`main.py`) 的责任，这允许调用方完全控制 `batch_size`, `num_workers`, `pin_memory` 等性能参数。
