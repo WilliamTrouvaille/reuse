@@ -184,3 +184,68 @@ ckpt_manager.save_epoch_checkpoint(state, current_epoch)
     }
     ```
 * **注意**: 此函数**不会**创建 `DataLoader`。创建 `DataLoader` 是调用方 (`main.py`) 的责任，这允许调用方完全控制 `batch_size`, `num_workers`, `pin_memory` 等性能参数。
+
+## 进度条 (`progress_tracker.py`)
+
+### `ProgressTracker` (类)
+
+**作用**: (重要) 替换 `tqdm`，用于在 PyTorch 训练/评估循环中显示进度，同时**避免 I/O 和 `.item()` 导致的性能瓶颈**。
+
+**核心原理**:
+[cite_start]您不应该在 `for` 循环的每一步都调用 `.item()` 或 `tqdm.set_postfix()`，因为它们是缓慢的同步 I/O 操作 。
+[cite_start]`ProgressTracker` 通过**时间节流 (Time-Based Throttling)** 解决了这个问题 ：
+
+1.  它接收 `torch.Tensor` (例如 `loss`)。
+2.  [cite_start]它在 GPU 上对这些 Tensor 进行累加（非阻塞）。
+3.  [cite_start]它只在固定的时间间隔（例如每 0.5 秒）触发**一次** `.item()` 同步和 `set_postfix` I/O 。
+4.  它显示的指标 (例如 `loss=0.1234`) **始终是整个 epoch 到目前为止的运行平均值**。
+
+**用法**:
+
+```python
+from utils import ProgressTracker
+import torch
+
+# 1. (模拟) 环境
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+data_loader = [(torch.randn(1, device=device), torch.randn(1, device=device)) for _ in range(1000)]
+TOTAL_EPOCHS = 5
+
+# 2. (外循环)
+for epoch in range(TOTAL_EPOCHS):
+
+    # 3. (内循环) 包装 data_loader
+    #    `leave=False` 意味着它在结束后会消失
+    #    (支持 'with' 语句自动 .close())
+    with ProgressTracker(
+        data_loader, 
+        description=f"Epoch {epoch+1}", 
+        leave=False,
+        device=device # 传入 device
+    ) as tracker:
+        
+        for images, labels in tracker:
+            
+            # --- 模拟训练 ---
+            time.sleep(0.001) # 模拟高速 GPU 工作
+            # 必须在 device 上的 Tensors
+            sim_loss = (torch.randn(1, device=device) + 0.5)
+            sim_acc = (torch.randn(1, device=device) + 0.8)
+            current_lr = 1e-4
+            # ------------------
+            
+            # 4. (关键) 更新指标
+            #    传入 Tensors 和 floats
+            #    这在 99% 的情况下是非阻塞的
+            tracker.update({
+                'loss': sim_loss,
+                'acc': sim_acc,
+                'lr': current_lr 
+            })
+
+    # 5. 'with' 语句结束，tracker 自动 .close()
+    
+    # 6. (可选) 获取该 epoch 的最终平均值
+    final_metrics = tracker.get_final_metrics()
+    logger.info(f"Epoch {epoch+1} Final Avg Loss: {final_metrics.get('loss', 0):.4f}")
+```

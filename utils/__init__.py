@@ -18,6 +18,7 @@ from .config import (
 from .ntfy_notifier import NtfyNotifier
 from .checkpoint_manager import CheckpointManager
 from .data import load_dataset_info
+from .progress import Progress
 
 from .helpers import (
     get_time,
@@ -58,6 +59,9 @@ __all__ = [
 
     # data.py
     'load_dataset_info',
+
+    # progress.py
+    'Progress',
 
     # helpers.py
     'get_time',
