@@ -7,11 +7,12 @@ Created on 2025/11/1 15:12
 @function: 主文件，用于测试
 """
 
+# 运行代码请放到根目录运行
 
 import argparse
 from loguru import logger
 from utils import \
-    setup_logging,\
+    setup_logging, \
     setup_config
 
 def get_project_defaults() -> dict:

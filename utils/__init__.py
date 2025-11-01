@@ -8,6 +8,13 @@ Created on 2025/11/1 15:16
 """
 
 from .logger_config import setup_logging
+from .config import (
+    setup_config,
+    load_config_from_yaml,
+    save_config_to_yaml,
+    print_config,
+    ConfigNamespace
+)
 
 # 版本信息
 __version__ = "0.0.1"
@@ -15,5 +22,13 @@ __author__ = "William_Trouvaille"
 
 # 导出主要接口
 __all__ = [
+    # logger_config.py
     'setup_logging',
+
+    # config.py
+    'setup_config',
+    'load_config_from_yaml',
+    'save_config_to_yaml',
+    'print_config',
+    'ConfigNamespace',
 ]
