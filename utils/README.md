@@ -340,3 +340,36 @@ def main():
         raise ValueError("模拟崩溃")
     ...
 ```
+
+## 指标跟踪 (`metrics.py`)
+
+### `MetricTracker` (类)
+
+**作用**: (高性能) 在 `train_epoch` 或 `eval_epoch` 期间高效累积指标，**避免在循环中调用 `.item()`** 导致的 GPU 同步瓶颈。
+
+**核心原理**:
+* `update()`: (在循环内调用) 这是一个廉价的操作。它只收集 `logits` 和 `labels` Tensors 到一个 Python 列表中（Tensors 仍保留在 GPU/设备上）。
+* `compute()`: (在循环后调用) 这是一个昂贵的操作。它将列表中的所有 Tensors `torch.cat` 在一起，执行一次 `.max()`、`.sum()` 和 `.item()` 来计算最终的 `loss` 和 `acc`。
+
+**用法**:
+```python
+from utils import MetricTracker
+
+# 1. 在 epoch 开始前初始化
+tracker = MetricTracker(device=device)
+
+# 2. 在循环中 (例如 ProgressTracker 内部)
+for inputs, labels in loader:
+    logits = model(inputs)
+    loss = criterion(logits, labels)
+    
+    # 3. (廉价) 在每一步调用 update
+    tracker.update(logits, labels, loss)
+
+# 4. (昂贵) 在 epoch 结束后调用 compute
+final_epoch_metrics = tracker.compute()
+# final_epoch_metrics = {'loss': 0.123, 'acc': 95.4}
+
+# 5. 重置以备下一个 epoch
+tracker.reset()
+```
