@@ -9,6 +9,8 @@ wheels/
 logs/**
 .idea
 .vecode
+*.pth
+checkpoints/
 
 # Virtual environments
 .venv

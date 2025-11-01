@@ -16,6 +16,7 @@ from .config import (
     ConfigNamespace
 )
 from .ntfy_notifier import NtfyNotifier
+from .checkpoint_manager import CheckpointManager
 
 # 版本信息
 __version__ = "0.0.1"
@@ -35,4 +36,7 @@ __all__ = [
 
     # ntfy_notifier.py
     'NtfyNotifier',
+
+    # checkpoint_manager.py
+    'CheckpointManager',
 ]
