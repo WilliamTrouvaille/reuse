@@ -343,20 +343,23 @@ def main():
 
 ## 指标跟踪 (`metrics.py`)
 
+本模块提供两类指标跟踪器。
+
 ### `MetricTracker` (类)
 
-**作用**: (高性能) 在 `train_epoch` 或 `eval_epoch` 期间高效累积指标，**避免在循环中调用 `.item()`** 导致的 GPU 同步瓶颈。
+**作用**: (高性能, 推荐用于训练/评估循环)
+在 GPU/设备 上高效累积指标，**避免在循环中调用 `.item()`** 导致的 GPU 同步瓶颈。
 
 **核心原理**:
-* `update()`: (在循环内调用) 这是一个廉价的操作。它只收集 `logits` 和 `labels` Tensors 到一个 Python 列表中（Tensors 仍保留在 GPU/设备上）。
-* `compute()`: (在循环后调用) 这是一个昂贵的操作。它将列表中的所有 Tensors `torch.cat` 在一起，执行一次 `.max()`、`.sum()` 和 `.item()` 来计算最终的 `loss` 和 `acc`。
+* `update(loss, outputs, targets)`: (在循环内调用) 这是一个廉价的操作。它在 GPU 上执行 `sum` (非阻塞)，内存占用 O(1)。
+* `compute()`: (在循环后调用) 这是一个昂贵的操作。它只在最后执行一次 `.item()` 来获取总和，并计算最终的 `loss`, `acc`, `top5`。
 
 **用法**:
 ```python
 from utils import MetricTracker
 
 # 1. 在 epoch 开始前初始化
-tracker = MetricTracker(device=device)
+tracker = MetricTracker(device=device, compute_top5=True)
 
 # 2. 在循环中 (例如 ProgressTracker 内部)
 for inputs, labels in loader:
@@ -364,12 +367,29 @@ for inputs, labels in loader:
     loss = criterion(logits, labels)
     
     # 3. (廉价) 在每一步调用 update
-    tracker.update(logits, labels, loss)
+    tracker.update(loss, logits, labels)
 
 # 4. (昂贵) 在 epoch 结束后调用 compute
 final_epoch_metrics = tracker.compute()
-# final_epoch_metrics = {'loss': 0.123, 'acc': 95.4}
+# final_epoch_metrics = {'loss': 0.123, 'acc': 95.4, 'top5': 99.8}
 
 # 5. 重置以备下一个 epoch
 tracker.reset()
+```
+
+### `AverageMeter` (类)
+
+**作用**: (轻量级) 简单的平均值计算器，用于 CPU 标量。
+**不**要在 GPU 循环的热路径 (hot loop) 中使用它，因为它**每次 update 都会同步**。
+
+**用法**: (例如跟踪学习率)
+```python
+from utils import AverageMeter
+lr_meter = AverageMeter()
+
+for ... in ...:
+    lr = optimizer.param_groups[0]['lr']
+    lr_meter.update(lr)
+
+logger.info(f"平均学习率: {lr_meter.avg}")
 ```

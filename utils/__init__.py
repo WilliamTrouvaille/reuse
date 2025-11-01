@@ -11,7 +11,7 @@ from .checkpoint_manager import CheckpointManager
 from .logger_config import setup_logging
 from .ntfy_notifier import NtfyNotifier
 from .progress import Progress
-from .metrics import MetricTracker
+from .metrics import MetricTracker, AverageMeter
 from .data import load_dataset_info
 
 from .config import (
@@ -96,4 +96,5 @@ __all__ = [
 
     # metrics.py
     'MetricTracker',
+    'AverageMeter',
 ]
