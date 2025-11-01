@@ -13,6 +13,7 @@ from .ntfy_notifier import NtfyNotifier
 from .progress import Progress
 from .metrics import MetricTracker, AverageMeter
 from .data import load_dataset_info
+from .early_stopping import EarlyStopper
 
 from .config import (
     setup_config,
@@ -97,4 +98,7 @@ __all__ = [
     # metrics.py
     'MetricTracker',
     'AverageMeter',
+
+    # early_stopping.py
+    'EarlyStopper',
 ]

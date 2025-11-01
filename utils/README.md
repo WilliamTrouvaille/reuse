@@ -393,3 +393,39 @@ for ... in ...:
 
 logger.info(f"平均学习率: {lr_meter.avg}")
 ```
+
+## 早停 (`early_stopping.py`)
+
+### `EarlyStopper` (类)
+
+**作用**: 封装早停逻辑，在 `Trainer` 中使用。
+
+**核心原理**:
+* `step(metric)`: (在 `eval_epoch` 后调用) 传入最新的验证指标。**返回 `bool` (is_best)**。
+* `is_best_so_far` (属性): `step` 方法会自动设置此标志。`Trainer` 检查此标志以决定是否调用 `CheckpointManager.save_best_model()`。
+* `should_stop` (属性): `step` 方法会自动更新内部计数器。`Trainer` 检查此标志以决定是否中断训练循环。
+* `state_dict()` / `load_state_dict(dict)`: (重要) 用于在检查点中保存和恢复早停的状态（`counter` 和 `best_metric`）。
+
+**用法**:
+```python
+from utils import EarlyStopper
+
+# 1. 在训练开始前初始化
+#    (Patience=10, 监控 'acc' (越高越好), 至少提升 0.01 才算数)
+stopper = EarlyStopper(patience=10, mode='max', min_delta=0.01)
+
+# --- (在 Trainer 内部循环中) ---
+for epoch in ...:
+    val_metrics = evaluate(...)
+    
+    # 2. 传入最新的指标，并获取 is_best
+    is_best = stopper.step(val_metrics['acc'])
+    
+    # 3. 检查是否应保存
+    if is_best:
+        save_best_model(...)
+        
+    # 4. 检查是否应停止
+    if stopper.should_stop:
+        break
+```
