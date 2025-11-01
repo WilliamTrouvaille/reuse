@@ -7,16 +7,16 @@ Created on 2025/11/1 18:08
 @detail: 这个管理器是通用的，它只负责保存和加载字典，而不关心字典中的具体内容。
 """
 
-import os
 import glob
+import os
 import re
+from typing import Dict, Any, Optional
+
 import torch
 from loguru import logger
-from typing import Dict, Any, Optional
 
 
 class CheckpointManager:
-
     # --- 核心文件名 ---
     BEST_MODEL_NAME = "best_model.pth"
     EPOCH_CKPT_PREFIX = "checkpoint_epoch_"
@@ -33,7 +33,7 @@ class CheckpointManager:
         """
         self.save_dir = os.path.abspath(save_dir)
         self.device = device
-        self.max_to_keep = max(1, max_to_keep) # 至少保留1个
+        self.max_to_keep = max(1, max_to_keep)  # 至少保留1个
 
         # 确保保存目录存在
         try:
@@ -63,7 +63,7 @@ class CheckpointManager:
             # 使用临时文件和重命名来确保原子性，防止在保存大文件时被中断导致文件损坏
             tmp_filepath = f"{filepath}.tmp"
             torch.save(state, tmp_filepath)
-            os.replace(tmp_filepath, filepath) # 原子操作
+            os.replace(tmp_filepath, filepath)  # 原子操作
 
             logger.debug(f"检查点已保存至: {filepath}")
         except Exception as e:
@@ -141,7 +141,7 @@ class CheckpointManager:
             return None
 
         parsed_files.sort(key=lambda x: x[0], reverse=True)
-        return os.path.basename(parsed_files[0][1]) # 返回文件名
+        return os.path.basename(parsed_files[0][1])  # 返回文件名
 
     # --- 公共 API ---
 

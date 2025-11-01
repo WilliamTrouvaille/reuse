@@ -6,16 +6,17 @@ Created on 2025/11/1 21:45
 @function: 通用辅助函数
 """
 
-import os
-import time
-import random
 import json
 import math
-from typing import Dict, Any, Optional, Union
+import os
+import random
+import time
+from typing import Dict, Any, Optional
 
 import numpy as np
 import torch
 from loguru import logger
+
 
 def get_time(format_str: str = "[%Y-%m-%d %H:%M:%S]") -> str:
     """
@@ -28,6 +29,7 @@ def get_time(format_str: str = "[%Y-%m-%d %H:%M:%S]") -> str:
         str: 格式化的时间字符串
     """
     return str(time.strftime(format_str, time.localtime()))
+
 
 def format_time(seconds: float) -> str:
     """
@@ -84,6 +86,7 @@ def set_random_seed(seed: int = 42) -> None:
         torch.backends.cudnn.benchmark = False
 
     logger.success(f"全局随机种子 {seed} 设置完毕。")
+
 
 def get_device(requested_device: str = 'auto') -> torch.device:
     """
@@ -151,6 +154,7 @@ def clear_memory() -> None:
         torch.cuda.empty_cache()
         logger.info("已清理 GPU 缓存 (torch.cuda.empty_cache())。")
 
+
 def get_memory_usage() -> Optional[Dict[str, str]]:
     """
     获取当前默认 CUDA 设备的内存使用情况。
@@ -160,7 +164,7 @@ def get_memory_usage() -> Optional[Dict[str, str]]:
         return None
 
     allocated = torch.cuda.memory_allocated()
-    reserved = torch.cuda.memory_reserved() # PyTorch 缓存
+    reserved = torch.cuda.memory_reserved()  # PyTorch 缓存
     total = torch.cuda.get_device_properties(0).total_memory
 
     return {
@@ -169,6 +173,7 @@ def get_memory_usage() -> Optional[Dict[str, str]]:
         "total": format_size(total),
         "percent_used": f"{(allocated / total * 100):.2f}%"
     }
+
 
 def log_memory_usage(description: str = "当前内存使用"):
     """
@@ -201,6 +206,7 @@ def validate_tensor(tensor: torch.Tensor, name: str = "tensor") -> bool:
         return False
 
     return True
+
 
 def count_parameters(model: torch.nn.Module, trainable_only: bool = False) -> int:
     """
@@ -250,7 +256,8 @@ def save_dict_to_json(data: Dict[str, Any], file_path: str) -> None:
         logger.info(f"数据已保存到 JSON 文件: {file_path}")
     except Exception as e:
         logger.error(f"保存 JSON 文件失败: {file_path}。错误: {e}")
-        raise # 重新抛出异常，让调用方知道失败了
+        raise  # 重新抛出异常，让调用方知道失败了
+
 
 def load_dict_from_json(file_path: str) -> Optional[Dict[str, Any]]:
     """
@@ -268,5 +275,3 @@ def load_dict_from_json(file_path: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"加载 JSON 文件失败: {file_path}。错误: {e}")
         return None
-
-

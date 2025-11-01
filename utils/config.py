@@ -7,9 +7,10 @@ Created on 2025/11/1 15:37
 @detail: 提供从 YAML 加载配置、深度合并、命令行参数覆盖以及转换为属性访问对象 (Namespace) 的功能。
 """
 import os
+from collections.abc import Mapping
+
 import yaml
 from loguru import logger
-from collections.abc import Mapping
 
 
 class ConfigNamespace:
@@ -94,6 +95,7 @@ def _deep_merge_dict(base_dict: dict, override_dict: dict) -> dict:
             # 否则，直接覆盖（或添加）
             merged[key] = value
     return merged
+
 
 def load_config_from_yaml(config_path: str) -> dict:
     """
@@ -206,7 +208,7 @@ def save_config_to_yaml(config: (dict | ConfigNamespace), config_path: str):
                 default_flow_style=False,
                 allow_unicode=True,
                 indent=2,
-                sort_keys=False # 保持原始顺序
+                sort_keys=False  # 保持原始顺序
             )
         logger.success(f"配置文件已保存至: {resolved_path}")
     except Exception as e:
@@ -283,6 +285,3 @@ def setup_config(
 
     logger.success("配置加载完成并转换为 ConfigNamespace。")
     return final_config_namespace
-
-
-

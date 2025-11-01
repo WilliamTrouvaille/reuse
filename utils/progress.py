@@ -106,7 +106,7 @@ class Progress:
             if tensor_metrics:
                 self._initialize_accumulators(tensor_metrics)
             else:
-                self.is_initialized = True # 也许没有 tensor
+                self.is_initialized = True  # 也许没有 tensor
 
         # 2. 累积指标 (为整个 epoch)
         self.total_steps += 1
