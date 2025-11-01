@@ -15,6 +15,7 @@ from .config import (
     print_config,
     ConfigNamespace
 )
+from .ntfy_notifier import NtfyNotifier
 
 # 版本信息
 __version__ = "0.0.1"
@@ -31,4 +32,7 @@ __all__ = [
     'save_config_to_yaml',
     'print_config',
     'ConfigNamespace',
+
+    # ntfy_notifier.py
+    'NtfyNotifier',
 ]

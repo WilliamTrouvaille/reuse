@@ -56,3 +56,15 @@
 
 * **`config` (dict | ConfigNamespace)**: 要打印的配置对象。
 * **`title` (str)**: (可选) 打印输出的标题。
+
+## NTFY 通知 (`ntfy_notifier.py`)
+
+### `NtfyNotifier` (类)
+
+**作用**: (在服务器上推荐使用) 发送实时训练状态通知到 ntfy 手机 App。
+
+* **`__init__(server_url)`**: 初始化。`server_url` 默认为 `"https://ntfy.sh"`。
+* **`.notify_start(message)`**: (低优先级) 发送 "训练开始" 通知。
+* **`.notify_success(message)`**: (高优先级) 发送 "训练成功" 通知。
+* **`.notify_error(message, error_details)`**: (最高优先级) 发送 "训练失败" 通知。`error_details` (可选) 可传入 traceback 字符串，将使用 Markdown 代码块格式化。
+* **`.send(message, title, priority, tags)`**: (高级) 发送自定义通知。

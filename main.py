@@ -8,114 +8,99 @@ Created on 2025/11/1 15:12
 """
 
 
-import argparse
+import time
+import traceback
 from loguru import logger
-from utils import \
-    setup_logging,\
-    setup_config
+from utils import setup_logging, NtfyNotifier
 
-def get_project_defaults() -> dict:
-    """定义本项目（Dataset Condensation）的默认参数"""
-    return {
-        'experiment': {
-            'name': 'dataset_condensation',
-            'seed': 42,
-        },
-        'dataset': {
-            'name': 'CIFAR10',
-            'data_path': './data',
-            'ipc': 1,
-            'num_workers': 4
-        },
-        'model': {
-            'name': 'ConvNet',
-        },
-        'training': {
-            'epochs': 1000,
-            'lr_img': 1.0,
-            'lr_net': 0.01,
-        },
-        'logging': {
-            'log_dir': './logs',
-            'console_level': 'INFO',
-            'file_level': 'DEBUG'
-        }
-    }
-
-def parse_arguments() -> dict:
-    """定义和解析命令行参数"""
-    parser = argparse.ArgumentParser(description="数据集压缩实验")
-
-    # 定义参数，注意 dest 的命名应与配置字典匹配
-    # 使用点分key (dot-notation) 来覆盖嵌套设置
-    parser.add_argument(
-        '-c', '--config',
-        type=str,
-        default='config.yaml',
-        help='配置文件的路径'
-    )
-    parser.add_argument(
-        '--dataset.name',
-        type=str,
-        help='覆盖数据集名称 (例如: MNIST)'
-    )
-    parser.add_argument(
-        '--dataset.ipc',
-        type=int,
-        help='覆盖每类图像数 (IPC)'
-    )
-    parser.add_argument(
-        '--training.epochs',
-        type=int,
-        help='覆盖训练轮数'
-    )
-
-    args = parser.parse_args()
-
-    # 返回字典形式的参数
-    return vars(args)
-
+# --- 模拟设置 ---
+# 将此项更改为 True 来测试错误通知
+SIMULATE_ERROR = True
+SIMULATION_DURATION_SECONDS = 3
+# ------------------
 
 def main():
-    # 1. 解析命令行参数
-    # cmd_args = {'config': 'config.yaml', 'dataset.name': 'MNIST', 'dataset.ipc': 10, ...}
-    cmd_args = parse_arguments()
+    """
+    主执行函数
+    """
 
-    # 2. 获取项目默认配置
-    default_config = get_project_defaults()
-
-    # 3. (注意) 在 setup_config 之前设置日志
-    # 我们使用默认配置中的日志设置来初始化
-    # setup_config 稍后可能会加载 YAML/Args 中新的日志级别，
-    # 但初始日志记录需要现在开始。
+    # 1. (必需) 配置日志记录器
     setup_logging(
-        log_dir=default_config['logging']['log_dir'],
-        console_level=default_config['logging']['console_level'],
-        file_level=default_config['logging']['file_level']
+        log_dir="logs",
+        console_level="DEBUG",
+        file_level="DEBUG"
     )
 
-    # 4. 🔥 核心：加载和合并配置
-    #    这将按 (Default -> YAML -> CMD) 的顺序自动合并
-    config = setup_config(
-        default_config=default_config,
-        yaml_config_path=cmd_args['config'], # 告知 YAML 路径
-        cmd_args=cmd_args                 # 传入所有命令行参数
-    )
+    logger.info("NtfyNotifier 测试脚本启动。")
 
-    # 5. 开始使用配置 (通过属性访问)
-    logger.info(f"实验开始: {config.experiment.name}")
-    logger.info(f"数据集: {config.dataset.name} (IPC={config.dataset.ipc})")
-    logger.info(f"模型: {config.model.name}")
-    logger.info(f"图像学习率: {config.training.lr_img}")
+    # 2. 初始化 Notifier
+    try:
+        notifier = NtfyNotifier()
+    except Exception as e:
+        logger.error(f"初始化 NtfyNotifier 失败: {e}")
+        logger.error("请检查 uv.lock 中的 'requests' 依赖是否已安装 (uv add requests)。")
+        return
 
-    # 6. (可选) 验证项目特定配置
-    #    这部分逻辑也从 utils 中移除了
-    if config.dataset.ipc < 1:
-        logger.error("IPC 必须大于 0。")
-        # raise ValueError("IPC 必须大于 0")
+    # 3. 使用 try...except...else 结构来捕获所有状态
+    try:
+        # --- 3a. 发送开始通知 ---
+        logger.info("发送 '训练开始' 通知...")
+        start_message = f"测试任务已启动。\n" \
+                        f"模式: {'模拟错误' if SIMULATE_ERROR else '模拟成功'}\n" \
+                        f"预计持续时间: {SIMULATION_DURATION_SECONDS} 秒"
+        notifier.notify_start(start_message)
 
-    # ... 您的训练代码 ...
-    logger.success("实验完成。")
+        # --- 3b. 模拟长时间运行的任务 ---
+        logger.info(f"开始模拟工作，持续 {SIMULATION_DURATION_SECONDS} 秒...")
+        for i in range(SIMULATION_DURATION_SECONDS):
+            logger.debug(f"模拟工作... {i + 1}/{SIMULATION_DURATION_SECONDS}")
+            time.sleep(1)
+
+        # --- 3c. 模拟错误 (如果已配置) ---
+        if SIMULATE_ERROR:
+            logger.warning("正在模拟一个运行时错误 (ValueError)...")
+            # 这将触发下面的 `except Exception` 块
+            raise ValueError("这是一个用于测试 Ntfy 错误通知的模拟异常。")
+
+        logger.info("模拟工作完成，未发生错误。")
+
+    except KeyboardInterrupt:
+        # --- 4. 处理用户中断 (Ctrl+C) ---
+        logger.warning("检测到用户中断 (KeyboardInterrupt)！")
+
+        # 按照要求，发送最高优先级的错误通知
+        notifier.notify_error(
+            message="任务被用户手动中断 (Ctrl+C)。",
+            error_details="KeyboardInterrupt"
+        )
+
+    except Exception as e:
+        # --- 5. 处理所有其他异常 ---
+        logger.error(f"捕获到未处理的异常: {e}")
+
+        # 获取完整的堆栈跟踪信息
+        error_details = traceback.format_exc()
+        logger.debug(f"堆栈跟踪:\n{error_details}")
+
+        # 按照要求，发送最高优先级的错误通知
+        notifier.notify_error(
+            message=f"任务因运行时错误而失败: {type(e).__name__}",
+            error_details=error_details  # 传递完整的堆栈跟踪
+        )
+
+    else:
+        # --- 6. 处理成功 (仅当 try 块未发生异常时) ---
+        logger.success("任务成功完成。")
+
+        # 按照要求，发送次高优先级的成功通知
+        success_message = f"测试任务已成功完成。\n" \
+                          f"总运行时长: {SIMULATION_DURATION_SECONDS} 秒。"
+        notifier.notify_success(success_message)
+
+    finally:
+        # --- 7. 清理 (无论如何都会执行) ---
+        logger.info("NtfyNotifier 测试脚本执行完毕。")
+
 
 if __name__ == "__main__":
     main()
