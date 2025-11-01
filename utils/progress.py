@@ -29,7 +29,7 @@ class Progress:
             iterable,
             description: str = "Processing",
             leave: bool = False,
-            update_interval_sec: float = 0.5,
+            update_interval_sec: float = 1.5,
             device: Optional[torch.device] = None
     ):
         """
