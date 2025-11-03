@@ -6,11 +6,11 @@ Created on 2025/11/2 01:02
 @function: 高性能指标跟踪模块
 @description: 提供 MetricTracker 类，用于在 GPU/设备 上高效累积指标，并在最后统一计算，以避免循环中的 .item() 同步瓶颈。
 """
-from typing import Dict, Optional, Union
+from typing import Dict, Union
 
 import torch
-import torch.nn.functional as F
 from loguru import logger
+
 
 class MetricTracker:
     """
@@ -21,6 +21,7 @@ class MetricTracker:
             - 只在调用 compute() 时才执行一次 GPU->CPU 同步。
             - 内存占用 O(1)，避免了 `torch.cat` 导致的 OOM 风险。
         """
+
     def __init__(
             self,
             device: Union[str, torch.device],
@@ -42,7 +43,6 @@ class MetricTracker:
         # 初始化累加器
         self.reset()
         logger.debug(f"MetricTracker 初始化，设备: {self.device}，Top-5: {self.compute_top5}")
-
 
     def reset(self):
         """
@@ -84,7 +84,7 @@ class MetricTracker:
         # 3. (可选) 计算 Top-5 准确率 (在 GPU 上)
         if self.compute_top5:
             _, predictions_top5 = outputs.topk(k=5, dim=1, largest=True, sorted=True)
-            targets_expanded = targets.view(-1, 1) # 变为 [B, 1]
+            targets_expanded = targets.view(-1, 1)  # 变为 [B, 1]
             self.correct_top5 += predictions_top5.eq(targets_expanded).any(dim=1).sum()
 
         # 4. 累积样本总数 (在 CPU 上)
@@ -123,6 +123,7 @@ class MetricTracker:
             logger.error(f"在 MetricTracker.compute() 中计算指标失败: {e}")
             return {'loss': -1.0, 'acc': -1.0}
 
+
 class AverageMeter:
     """
     (轻量级) 简单的平均值计算器 (用于 CPU 标量)。
@@ -130,6 +131,7 @@ class AverageMeter:
     用于跟踪非 Tensor 值（例如学习率、数据加载时间）。
     每次 update() 都会同步 (.item())。
     """
+
     def __init__(self):
         self.reset()
 
@@ -148,7 +150,7 @@ class AverageMeter:
             n (int): 样本数量 (用于加权平均)。
         """
         if isinstance(val, torch.Tensor):
-            val = val.item() # (同步点)
+            val = val.item()  # (同步点)
 
         self.val = val
         self.sum += val * n

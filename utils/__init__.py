@@ -8,13 +8,6 @@ Created on 2025/11/1 15:16
 """
 
 from .checkpoint_manager import CheckpointManager
-from .logger_config import setup_logging
-from .ntfy_notifier import NtfyNotifier
-from .progress import Progress
-from .metrics import MetricTracker, AverageMeter
-from .data import load_dataset_info
-from .early_stopping import EarlyStopper
-
 from .config import (
     setup_config,
     load_config_from_yaml,
@@ -22,7 +15,7 @@ from .config import (
     print_config,
     ConfigNamespace
 )
-
+from .data import load_dataset_info
 from .decorators import (
     time_it,
     no_grad,
@@ -30,6 +23,7 @@ from .decorators import (
     eval_mode,
     log_errors
 )
+from .early_stopping import EarlyStopper
 from .helpers import (
     get_time,
     format_time,
@@ -44,10 +38,14 @@ from .helpers import (
     save_dict_to_json,
     load_dict_from_json
 )
-
+from .logger_config import setup_logging
+from .metrics import MetricTracker, AverageMeter
+from .ntfy_notifier import NtfyNotifier
+from .progress import Progress
+from .train import Trainer
 
 # 版本信息
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 __author__ = "William_Trouvaille"
 
 # 导出主要接口
@@ -101,4 +99,7 @@ __all__ = [
 
     # early_stopping.py
     'EarlyStopper',
+
+    # train.py
+    'Trainer',
 ]

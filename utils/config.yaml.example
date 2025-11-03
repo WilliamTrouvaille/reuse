@@ -47,14 +47,14 @@ model:
 # 本节的大部分参数由 utils.train.Trainer.from_config 直接读取
 training:
     # --- 1. 核心循环参数 (在 main.py 中使用) ---
-    
+
     # 总训练轮数
     epochs: 100
     # 批次大小
     batch_size: 128
-    
+
     # --- 2. 优化器参数 (在 main.py 中使用) ---
-    
+
     # 初始学习率
     lr: 0.01
     # 使用的优化器类型 (例如: SGD, Adam)
@@ -62,51 +62,51 @@ training:
     # (可以添加其他优化器参数)
     # weight_decay: 0.0001
     # momentum: 0.9
-    
+
     # --- 3. 性能与优化 (由 Trainer 读取) ---
-    
+
     # (性能) 是否使用自动混合精度 (AMP)
     # 依赖: utils.train.Trainer (use_amp)
     use_amp: true
-    
+
     # (性能) 梯度累积步数。
     # 依赖: utils.train.Trainer (grad_accum_steps)
     grad_accum_steps: 1
-    
+
     # (可选) 梯度裁剪的最大范数。如果为 null 或 0 则不使用。
     # 依赖: utils.train.Trainer (max_grad_norm)
     max_grad_norm: 1.0
-    
+
     # --- 4. 验证与日志 (由 Trainer 读取) ---
-    
+
     # 每隔多少个 epoch 记录一次详细日志
     # 依赖: utils.train.Trainer (log_interval)
     log_interval: 1
-    
+
     # 每隔多少个 epoch 运行一次验证集
     # 依赖: utils.train.Trainer (val_interval)
     val_interval: 1
-    
+
     # 是否计算 Top-5 准确率 (如果数据集类别 > 5)
     # 依赖: utils.train.Trainer (compute_top5)
     compute_top5: true
-    
+
     # --- 5. 早停与指标 (由 Trainer 读取) ---
-    
+
     # 用于早停和保存最佳模型的指标名称
     # 必须与 utils.metrics.MetricTracker.compute() 返回的键匹配
     # 依赖: utils.train.Trainer (metric_to_track)
     metric_to_track: "acc"
-    
+
     # 监控指标的模式: 'max' (越高越好) 或 'min' (越低越好)
     # 依赖: utils.train.Trainer (metric_mode)
     # 依赖: utils.early_stopping.EarlyStopper (mode)
     metric_mode: "max"
-    
+
     # 早停耐心：在停止前等待多少个 epoch 没有改善
     # 依赖: utils.early_stopping.EarlyStopper (patience)
     patience: 10
-    
+
     # (可选) 被视为"改善"的最小变化量
     # 依赖: utils.early_stopping.EarlyStopper (min_delta)
     min_delta: 0.0
@@ -119,7 +119,7 @@ checkpoint:
     # 保存检查点（.pth 文件）的目录
     # 依赖: utils.checkpoint_manager.CheckpointManager (save_dir)
     save_dir: "./checkpoints"
-    
+
     # 滚动保存最近的 K 个 epoch 检查点
     # (best_model.pth 和 interrupt_checkpoint.pth 不受此限制)
     # 依赖: utils.checkpoint_manager.CheckpointManager (max_to_keep)
@@ -144,11 +144,11 @@ logging:
 ntfy:
     # 是否启用 NTFY 手机通知 (true / false)
     enabled: true
-    
+
     # (可选) Ntfy 服务器 URL，如果自托管的话
     # 依赖: utils.ntfy_notifier.NtfyNotifier (server_url)
     server_url: "https://ntfy.sh"
-    
+
     # (可选) 目标 Ntfy 频道
     # (注意: utils.ntfy_notifier.py 中可能已硬编码)
     # 依赖: utils.ntfy_notifier.NtfyNotifier (topic)

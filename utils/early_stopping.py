@@ -7,10 +7,11 @@ Created on 2025/11/2 01:28
 @detail: 提供 EarlyStopper 类，用于在训练期间监控验证指标，并在指标不再改善时停止训练。
 """
 
-from typing import Optional, Literal
+from typing import Literal
 
 import numpy as np
 from loguru import logger
+
 
 class EarlyStopper:
     """
@@ -78,7 +79,7 @@ class EarlyStopper:
     def should_stop(self) -> bool:
         """(只读) 检查是否应触发早停。"""
         if self.patience <= 0:
-            return False # 早停被禁用
+            return False  # 早停被禁用
 
         if self.patience_counter >= self.patience:
             if not self._should_stop and self.verbose:
@@ -103,7 +104,7 @@ class EarlyStopper:
         """
 
         if self.patience <= 0:
-            return False # 早停被禁用
+            return False  # 早停被禁用
 
         # 1. 检查指标是否显著改善
         is_best = False

@@ -21,7 +21,7 @@ class NtfyNotifier:
         session (requests.Session): 用于 HTTP 请求的会话对象。
     """
 
-    # 将频道硬编码
+    # 频道默认硬编码
     TOPIC = "trouvaille_william_yK5aEPt72KfT6m9z"
 
     def __init__(self, server_url: str = "https://ntfy.sh", topic: str = TOPIC):
