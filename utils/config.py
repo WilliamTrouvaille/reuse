@@ -224,7 +224,7 @@ def print_config(config: (dict | ConfigNamespace), title: str = "当前配置信
         title (str): 打印的标题
     """
     logger.info("=" * 60)
-    logger.info(f"{title}")
+    logger.info(f"{title}".center(60))
     logger.info("=" * 60)
 
     def print_recursive(d: dict, indent: int = 0):

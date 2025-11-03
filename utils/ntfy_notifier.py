@@ -24,7 +24,7 @@ class NtfyNotifier:
     # 将频道硬编码
     TOPIC = "trouvaille_william_yK5aEPt72KfT6m9z"
 
-    def __init__(self, server_url: str = "https://ntfy.sh"):
+    def __init__(self, server_url: str = "https://ntfy.sh", topic: str = TOPIC):
         """
         初始化通知器。
 
@@ -32,7 +32,8 @@ class NtfyNotifier:
             server_url (str): ntfy 服务器的 URL。默认为公共服务器。
         """
         self.server_url = server_url
-        self.topic_url = f"{self.server_url}/{self.TOPIC}"
+        self.topic = topic
+        self.topic_url = f"{self.server_url}/{self.topic}"
 
         # 1. 初始化 requests.Session 以复用连接
         self.session = requests.Session()

@@ -138,7 +138,7 @@ def main():
     # --- 7. 结束检查 ---
     logger.success("模拟训练完成。")
     logger.info("=" * 40)
-    logger.info(f"最终检查点目录内容: {CHECKPOINT_DIR}")
+    logger.info(f"最终检查点目录内容: {CHECKPOINT_DIR}".center(40))
 
     final_files = os.listdir(CHECKPOINT_DIR)
     for f in sorted(final_files):
