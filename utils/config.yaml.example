@@ -8,6 +8,12 @@ experiment:
     # 将在 utils.helpers.set_random_seed 中设置
     seed: 42
 
+    # (性能) 是否启用 cuDNN 自动调优
+    # true: 启用 benchmark，在固定输入尺寸时可提升 20-30% 性能，但会牺牲可复现性
+    # false: 禁用 benchmark，保证完全可复现，但性能较低（默认）
+    # 依赖: utils.helpers.set_random_seed (enable_cudnn_benchmark)
+    enable_cudnn_benchmark: true
+
 # ============================================================
 # 数据集配置 (Dataset)
 # ============================================================
@@ -116,6 +122,10 @@ training:
 # ============================================================
 # 本节由 utils.train.Trainer.from_config (通过 CheckpointManager) 读取
 checkpoint:
+    # 是否启用检查点保存功能
+    # 依赖: utils.train.Trainer.from_config
+    enabled: true
+
     # 保存检查点（.pth 文件）的目录
     # 依赖: utils.checkpoint_manager.CheckpointManager (save_dir)
     save_dir: "./checkpoints"
@@ -153,3 +163,50 @@ ntfy:
     # (注意: utils.ntfy_notifier.py 中可能已硬编码)
     # 依赖: utils.ntfy_notifier.NtfyNotifier (topic)
     topic: "trouvaille_william_yK5aEPt72KfT6m9z"
+
+# ============================================================
+# 训练报告配置 (Reporter)
+# ============================================================
+# 本节由 utils.visualization.TrainingReporter 读取
+reporter:
+    # 报告保存根目录
+    save_dir: "./docs"
+
+    # 是否在报告目录中创建时间戳子目录（避免覆盖）
+    # true: 创建 ./docs/report_20251104_143022/
+    # false: 直接使用 ./docs/
+    use_timestamp: true
+
+    # 图表样式配置
+    plots:
+        # 图表分辨率 (DPI)
+        dpi: 100
+        # 默认图表尺寸 [width, height] (英寸)
+        figure_size: [10, 6]
+        # matplotlib 样式名称
+        style: "seaborn-v0_8-darkgrid"
+
+    # 可选图表开关（控制生成哪些图表）
+    enable_plots:
+        # 训练曲线（Loss & 准确率）
+        training_curves: true
+        # 混淆矩阵
+        confusion_matrix: true
+        # ROC 曲线
+        roc_curve: true
+        # 分类报告热图
+        classification_report: true
+        # Epoch 耗时分布
+        epoch_time_distribution: true
+
+    # ROC 曲线配置
+    roc:
+        # 多分类策略: 'ovr' (One-vs-Rest) 或 'ovo' (One-vs-One)
+        multi_class: "ovr"
+
+    # 混淆矩阵配置
+    confusion_matrix:
+        # 是否归一化显示（百分比）
+        normalize: true
+        # 颜色映射方案（例如: Blues, YlGnBu, Greens）
+        cmap: "Blues"

@@ -59,15 +59,25 @@ class CheckpointManager:
         os.makedirs(self.save_dir, exist_ok=True)
 
         filepath = os.path.join(self.save_dir, filename)
+        tmp_filepath = f"{filepath}.tmp"
+
         try:
             # 使用临时文件和重命名来确保原子性，防止在保存大文件时被中断导致文件损坏
-            tmp_filepath = f"{filepath}.tmp"
             torch.save(state, tmp_filepath)
             os.replace(tmp_filepath, filepath)  # 原子操作
 
             logger.debug(f"检查点已保存至: {filepath}")
         except Exception as e:
             logger.error(f"保存检查点失败: {filepath}。错误: {e}")
+
+            # 清理临时文件
+            if os.path.exists(tmp_filepath):
+                try:
+                    os.remove(tmp_filepath)
+                    logger.debug(f"已清理临时文件: {tmp_filepath}")
+                except OSError as cleanup_error:
+                    logger.warning(f"清理临时文件失败: {cleanup_error}")
+
             # 可以在这里触发 ntfy 通知
         return filepath
 

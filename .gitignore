@@ -12,6 +12,8 @@ logs/**
 *.pth
 checkpoints/
 data
+Claude.md
+.claude
 
 # Virtual environments
 .venv

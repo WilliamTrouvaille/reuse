@@ -54,12 +54,15 @@ def format_time(seconds: float) -> str:
         return f"{hours}h {remaining_minutes}m {remaining_seconds:.1f}s"
 
 
-def set_random_seed(seed: int = 42) -> None:
+def set_random_seed(seed: int = 42, enable_cudnn_benchmark: bool = True) -> None:
     """
     设置所有相关库的随机种子以确保实验的可复现性。
 
     参数:
         seed (int): 随机种子值
+        enable_cudnn_benchmark (bool): 是否启用 cuDNN 自动调优。
+            - False (默认): 禁用 benchmark，保证完全可复现
+            - True: 启用 benchmark，在固定输入尺寸时可提升 20-30% 性能，但会牺牲可复现性
     """
     logger.info(f"正在设置全局随机种子: {seed}")
 
@@ -81,9 +84,18 @@ def set_random_seed(seed: int = 42) -> None:
         torch.cuda.manual_seed_all(seed)
 
         # (重要) 确保 cuDNN 使用确定性算法
-        # 这可能会牺牲一些性能，但对于可复现性是必需的
         torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+
+        # cuDNN benchmark 配置（可选性能优化）
+        torch.backends.cudnn.benchmark = enable_cudnn_benchmark
+
+        if enable_cudnn_benchmark:
+            logger.warning(
+                "cuDNN benchmark 已启用，将牺牲可复现性以换取性能提升。"
+                "如需完全可复现，请在配置中设置 enable_cudnn_benchmark: false"
+            )
+        else:
+            logger.debug("cuDNN benchmark 已禁用（保证可复现性）。")
 
     logger.success(f"全局随机种子 {seed} 设置完毕。")
 
@@ -155,17 +167,34 @@ def clear_memory() -> None:
         logger.info("已清理 GPU 缓存 (torch.cuda.empty_cache())。")
 
 
-def get_memory_usage() -> Optional[Dict[str, str]]:
+def get_memory_usage(device: Optional[Union[int, torch.device]] = None) -> Optional[Dict[str, str]]:
     """
-    获取当前默认 CUDA 设备的内存使用情况。
+    获取指定 CUDA 设备的内存使用情况。
+
+    参数:
+        device (int | torch.device, optional): 目标设备。
+            - None: 使用当前设备（默认）
+            - int: 设备编号（如 0, 1）
+            - torch.device: PyTorch 设备对象
+
+    返回:
+        dict 或 None: 包含内存使用信息的字典，如果不是 CUDA 设备则返回 None
     """
     if not torch.cuda.is_available():
         logger.warning("get_memory_usage() 仅适用于 CUDA。")
         return None
 
-    allocated = torch.cuda.memory_allocated()
-    reserved = torch.cuda.memory_reserved()  # PyTorch 缓存
-    total = torch.cuda.get_device_properties(0).total_memory
+    # 确定设备 ID
+    if device is None:
+        device_id = torch.cuda.current_device()
+    elif isinstance(device, torch.device):
+        device_id = device.index if device.index is not None else 0
+    else:
+        device_id = device
+
+    allocated = torch.cuda.memory_allocated(device_id)
+    reserved = torch.cuda.memory_reserved(device_id)  # PyTorch 缓存
+    total = torch.cuda.get_device_properties(device_id).total_memory
 
     return {
         "allocated": format_size(allocated),

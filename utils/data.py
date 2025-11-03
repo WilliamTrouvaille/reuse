@@ -7,7 +7,6 @@ Created on 2025/11/1 21:20
 @detail:
     - 包含一个数据注册表 (_DATASET_REGISTRY) 来存储元数据
     - 提供 `load_dataset_info` 函数以便加载数据集和元数据。
-    - 提供 `TensorDataset` 自定义类。
 """
 
 from typing import Dict, Any, List

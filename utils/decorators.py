@@ -4,7 +4,7 @@
 Created on 2025/11/2 00:22
 @author  : William_Trouvaille
 @function: 通用装饰器
-@description: 提供可复用的装饰器，用于处理日志、计时、PyTorch 状态管理和错误处理等"横切关注点"。
+@description: 提供可复用的通用装饰器，用于处理日志、计时、PyTorch 状态管理和错误处理等"横切关注点"。
 """
 import functools
 import time

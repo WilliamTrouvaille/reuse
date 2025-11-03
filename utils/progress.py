@@ -153,7 +153,11 @@ class Progress:
                 postfix_display[key] = value
 
         # e. (昂贵的 I/O) 更新 TQDM 显示
-        self.tqdm_bar.set_postfix(postfix_display)
+        try:
+            self.tqdm_bar.set_postfix(postfix_display)
+        except Exception as e:
+            # 进度条可能已关闭或出现其他异常，记录但不中断训练
+            logger.debug(f"更新进度条失败（可能已关闭）: {e}")
 
     def close(self) -> None:
         """

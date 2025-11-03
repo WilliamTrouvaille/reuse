@@ -43,6 +43,11 @@ from .metrics import MetricTracker, AverageMeter
 from .ntfy_notifier import NtfyNotifier
 from .progress import Progress
 from .train import Trainer
+from .visualization import (
+    MetricsCollector,
+    MetricsVisualizer,
+    TrainingReporter
+)
 
 # 版本信息
 __version__ = "0.1.0"
@@ -102,4 +107,9 @@ __all__ = [
 
     # train.py
     'Trainer',
+
+    # visualization/
+    'MetricsCollector',
+    'MetricsVisualizer',
+    'TrainingReporter',
 ]

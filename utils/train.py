@@ -209,15 +209,35 @@ class Trainer:
 
         参数:
             model, optimizer, criterion, device, scheduler: (同 __init__)
-            config (Any): 包含 'training', 'checkpoint', 'ntfy' 子配置的完整配置对象
+            config (Any): 完整配置对象，必须包含以下子配置:
+
+                config.training (必需):
+                    - use_amp (bool): 是否启用 AMP
+                    - grad_accum_steps (int): 梯度累积步数
+                    - max_grad_norm (float | None): 梯度裁剪范数
+                    - metric_to_track (str): 跟踪的指标名称（如 'acc', 'loss'）
+                    - metric_mode (str): 'max' 或 'min'
+                    - compute_top5 (bool): 是否计算 Top-5 准确率
+                    - log_interval (int): 日志记录间隔（epoch）
+                    - val_interval (int): 验证间隔（epoch）
+                    - patience (int): 早停容忍度（>0 启用早停）
+                    - show_progress (bool, optional): 是否显示进度条
+                    - progress_update_interval (float, optional): 进度条更新间隔
+
+                config.checkpoint (可选):
+                    - enabled (bool): 是否启用检查点保存
+                    - save_dir (str): 检查点保存目录
+                    - max_to_keep (int): 保留的检查点数量
+
+                config.ntfy (可选):
+                    - enabled (bool): 是否启用通知
 
         返回:
-            Trainer: 一个已配置好的 Trainer 实例
+            Trainer: 已配置的 Trainer 实例
 
         示例:
-            trainer = Trainer.from_config(
-                model, optimizer, criterion, device, config
-            )
+            config = load_config_from_yaml("config.yaml")
+            trainer = Trainer.from_config(model, optimizer, criterion, device, config)
             trainer.fit(train_loader, val_loader)
         """
         logger.info("Trainer (from_config 模式) 初始化...")
@@ -604,9 +624,12 @@ class Trainer:
         targets = targets.to(self.device, non_blocking=True)
 
         # 前向传播（使用 autocast 支持 AMP）
-        with autocast(enabled=(self.scaler is not None)):
+        # with autocast('cuda',enabled=(self.scaler is not None)):
+        #     outputs = self.model(inputs)
+        #     loss = self.criterion(outputs, targets)
+
+        with autocast('cuda', enabled=(self.scaler is not None)):
             outputs = self.model(inputs)
-            loss = self.criterion(outputs, targets)
 
         return {
             'loss': loss,
