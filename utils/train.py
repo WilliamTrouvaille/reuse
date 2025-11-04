@@ -624,12 +624,14 @@ class Trainer:
         targets = targets.to(self.device, non_blocking=True)
 
         # 前向传播（使用 autocast 支持 AMP）
-        # with autocast('cuda',enabled=(self.scaler is not None)):
-        #     outputs = self.model(inputs)
-        #     loss = self.criterion(outputs, targets)
-
-        with autocast('cuda', enabled=(self.scaler is not None)):
+        # 注意：autocast 仅在 CUDA 设备上启用
+        if self.scaler is not None:
+            with autocast():
+                outputs = self.model(inputs)
+                loss = self.criterion(outputs, targets)
+        else:
             outputs = self.model(inputs)
+            loss = self.criterion(outputs, targets)
 
         return {
             'loss': loss,
@@ -656,7 +658,11 @@ class Trainer:
         targets = targets.to(self.device, non_blocking=True)
 
         # 评估时也可以使用 AMP（加速推理）
-        with autocast(enabled=(self.scaler is not None)):
+        if self.scaler is not None:
+            with autocast():
+                outputs = self.model(inputs)
+                loss = self.criterion(outputs, targets)
+        else:
             outputs = self.model(inputs)
             loss = self.criterion(outputs, targets)
 

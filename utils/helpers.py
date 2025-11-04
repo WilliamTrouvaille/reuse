@@ -11,7 +11,7 @@ import math
 import os
 import random
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 
 import numpy as np
 import torch

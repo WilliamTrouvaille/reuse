@@ -1,77 +1,293 @@
-# `logger_config` 日志配置模块使用指南
+# 日志配置模块使用指南
 
-## 📚 目录
-1. [快速开始](#快速开始)
-2. [配置选项](#配置选项)
-3. [常见场景](#常见场景)
-4. [日志级别说明](#日志级别说明)
-5. [高级用法](#高级用法)
-6. [常见问题](#常见问题)
+本文档详细说明 `utils/logger_config.py` 模块中的日志配置工具。
 
----
+## 核心函数
 
-## 🚀 快速开始
+### `setup_logging(log_dir="logs", console_level="INFO", file_level="DEBUG")` 函数
 
-### 最小化示例（1 行代码）
+#### 功能
+配置 Loguru 日志记录器，设置控制台和文件输出。此函数是幂等的，可以多次调用而不会导致日志重复。
+
+#### 参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|-------|------|
+| `log_dir` | `str` | `"logs"` | 保存日志文件的目录 |
+| `console_level` | `str` | `"INFO"` | 控制台输出的最低日志级别 |
+| `file_level` | `str` | `"DEBUG"` | 文件输出的最低日志级别 |
+
+#### 返回值
+无
+
+#### 副作用
+- 移除所有已存在的日志处理器
+- 添加控制台输出（stderr）
+- 添加文件输出（轮转日志）
+- 自动创建日志目录（如果不存在）
+
+#### 特性
+
+**幂等性**
+- 自动移除旧的处理器
+- 多次调用不会导致日志重复
+- 最后一次配置生效
+
+**控制台输出**
+- 输出到 `sys.stderr`
+- 支持彩色输出（ANSI颜色代码）
+- 异步处理（不阻塞主线程）
+
+**文件输出**
+- 自动按日期命名：`log_YYYYMMDD.log`
+- 自动轮转：文件达到 10 MB 时创建新文件
+- 自动清理：只保留最近 10 天的日志
+- UTF-8 编码
+- 异步写入
+- 完整堆栈跟踪（`backtrace=True`）
+- 详细错误诊断（`diagnose=True`）
+
+**日志格式**
+
+```
+<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> |
+<level>{level: <8}</level> |
+<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> -
+<level>{message}</level>
+```
+
+**输出示例**
+
+```
+2025-11-04 14:30:22.123 | INFO     | main:train:45 - 开始训练...
+2025-11-04 14:30:23.456 | SUCCESS  | trainer:fit:102 - Epoch 1 完成
+2025-11-04 14:30:24.789 | ERROR    | data:load:23 - 文件未找到
+```
+
+#### 工作机制
+
+**初始化流程**
 
 ```python
-from utils import setup_logging
+def setup_logging(...):
+    # 1. 移除所有已存在的处理器（确保幂等性）
+    try:
+        logger.remove()
+    except ValueError:
+        pass  # 没有处理器时忽略
 
-# 使用默认配置
-setup_logging()
+    # 2. 定义统一的日志格式
+    log_format = "..."
 
-# 现在可以使用 logger
+    # 3. 添加控制台 Sink
+    logger.add(
+        sys.stderr,
+        level=console_level.upper(),
+        format=log_format,
+        colorize=True,
+        enqueue=True  # 异步
+    )
+
+    # 4. 创建日志目录
+    os.makedirs(log_dir, exist_ok=True)
+
+    # 5. 添加文件 Sink
+    logger.add(
+        log_file_path,
+        level=file_level.upper(),
+        format=log_format,
+        rotation="10 MB",
+        retention="10 days",
+        encoding="utf-8",
+        enqueue=True,
+        backtrace=True,
+        diagnose=True
+    )
+
+    # 6. 记录配置完成信息
+    logger.info("Loguru 日志记录器配置完成。")
+```
+
+**日志轮转规则**
+
+```
+rotation="10 MB"     # 文件大小达到 10 MB 时自动轮转
+retention="10 days"  # 只保留最近 10 天的日志
+```
+
+**文件命名规则**
+
+```
+logs/
+├── log_20251103.log      # 2025年11月3日的日志
+├── log_20251104.log      # 2025年11月4日的日志
+└── log_20251104.log.1    # 轮转后的文件
+```
+
+#### 异常处理
+
+**日志目录创建失败**
+- 捕获 `OSError`
+- 记录错误到控制台（控制台 Sink 已添加）
+- 提前返回（只保留控制台输出）
+
+```python
+try:
+    os.makedirs(log_dir, exist_ok=True)
+except OSError as e:
+    logger.error(f"无法创建日志目录: {log_dir}。错误: {e}")
+    return  # 只使用控制台输出
+```
+
+## 日志级别
+
+### Loguru 支持的级别
+
+| 级别 | 数值 | 用途 |
+|------|-----|------|
+| `TRACE` | 5 | 最详细的追踪信息 |
+| `DEBUG` | 10 | 详细调试信息 |
+| `INFO` | 20 | 一般信息 |
+| `SUCCESS` | 25 | 成功消息（Loguru 特有） |
+| `WARNING` | 30 | 警告信息 |
+| `ERROR` | 40 | 错误信息 |
+| `CRITICAL` | 50 | 严重错误 |
+
+### 使用方式
+
+```python
 from loguru import logger
 
-logger.debug("这是调试信息")
-logger.info("这是普通信息")
-logger.warning("这是警告")
-logger.error("这是错误")
-logger.success("这是成功消息")
+# DEBUG: 详细的调试信息
+logger.debug(f"输入形状: {inputs.shape}, 设备: {device}")
+
+# INFO: 程序流程信息
+logger.info("开始训练...")
+logger.info(f"训练集大小: {len(train_dataset)}")
+
+# SUCCESS: 成功消息
+logger.success("训练完成！")
+logger.success(f"最佳准确率: {best_acc:.2f}%")
+
+# WARNING: 潜在问题
+logger.warning("GPU 内存使用率超过 90%")
+
+# ERROR: 错误但可继续
+logger.error("保存检查点失败")
+
+# CRITICAL: 严重错误
+logger.critical("CUDA 不可用，无法继续训练")
 ```
 
-就这么简单！`setup_logging` 会自动配置：
-- ✅ 彩色控制台输出
-- ✅ 自动按日期轮转的日志文件
-- ✅ 异步日志记录（不阻塞主线程）
-- ✅ 完整的堆栈跟踪
+### 级别过滤机制
 
----
-
-## ⚙️ 配置选项
-
-### 基础配置
+**控制台级别 vs 文件级别**
 
 ```python
-from utils import setup_logging
-
 setup_logging(
-    log_dir='./logs',           # 日志文件保存目录
-    console_level='INFO',        # 控制台输出级别
-    file_level='DEBUG'          # 文件输出级别
+    console_level='INFO',   # 控制台只显示 INFO 及以上
+    file_level='DEBUG'      # 文件记录 DEBUG 及以上
 )
+
+logger.debug("这条日志")  # 只会出现在文件中
+logger.info("这条日志")   # 同时出现在控制台和文件中
 ```
 
-**参数说明**：
-- `log_dir` (str): 日志文件保存目录，默认 `"logs"`
-- `console_level` (str): 控制台最低日志级别，默认 `"INFO"`
-- `file_level` (str): 文件最低日志级别，默认 `"DEBUG"`
+**推荐配置**
 
-**日志文件命名**：
-- 格式：`log_YYYYMMDD.log`
-- 示例：`log_20251104.log`
-- 特点：每天自动创建新文件
+| 场景 | 控制台级别 | 文件级别 | 原因 |
+|------|-----------|---------|------|
+| 开发调试 | `DEBUG` | `DEBUG` | 查看所有信息 |
+| 训练脚本 | `INFO` | `DEBUG` | 控制台简洁，文件详细 |
+| 生产环境 | `WARNING` | `INFO` | 减少输出，保留关键信息 |
+| 快速测试 | `INFO` | `CRITICAL` | 基本禁用文件日志 |
 
-**日志轮转规则**：
-- ✅ 文件大小达到 10 MB 时自动轮转
-- ✅ 保留最近 10 天的日志
-- ✅ 使用 UTF-8 编码
+## 高级特性
 
----
+### 异步日志记录
 
-## 📖 常见场景
+```python
+# enqueue=True 启用异步处理
+logger.add(..., enqueue=True)
+```
 
-### 场景 1: 开发环境（详细日志）
+**优势**
+- 日志 I/O 不阻塞主线程
+- 提高程序性能
+- 适合高频日志场景
+
+### 完整堆栈跟踪
+
+```python
+# backtrace=True, diagnose=True
+logger.add(..., backtrace=True, diagnose=True)
+```
+
+**功能**
+- `backtrace=True`: 显示完整的函数调用链
+- `diagnose=True`: 提供详细的变量值和上下文
+
+**示例**
+
+```python
+from loguru import logger
+
+def inner():
+    x = 10
+    raise ValueError("错误")
+
+def outer():
+    inner()
+
+try:
+    outer()
+except Exception:
+    logger.exception("发生异常")
+```
+
+**输出**（带完整堆栈和变量值）
+
+```
+2025-11-04 14:30:25.123 | ERROR | main:outer:15 - 发生异常
+Traceback (most recent call last):
+  File "main.py", line 13, in <module>
+    outer()
+    └ <function outer at 0x...>
+  File "main.py", line 11, in outer
+    inner()
+    └ <function inner at 0x...>
+  File "main.py", line 7, in inner
+    raise ValueError("错误")
+ValueError: 错误
+```
+
+### 结构化日志
+
+```python
+from loguru import logger
+
+# 添加额外上下文
+logger.bind(epoch=10, lr=0.001).info("训练开始")
+
+# 输出: ... | epoch=10 lr=0.001 | 训练开始
+```
+
+### 禁用特定模块的日志
+
+```python
+from loguru import logger
+
+# 禁用第三方库的日志
+logger.disable("transformers")
+logger.disable("urllib3")
+
+# 重新启用
+logger.enable("transformers")
+```
+
+## 使用场景
+
+### 场景 1: 开发环境
 
 ```python
 from utils import setup_logging
@@ -79,17 +295,17 @@ from utils import setup_logging
 # 控制台和文件都显示详细日志
 setup_logging(
     log_dir='./logs',
-    console_level='DEBUG',  # 控制台显示所有信息
-    file_level='DEBUG'      # 文件记录所有信息
+    console_level='DEBUG',
+    file_level='DEBUG'
 )
 ```
 
-**适用于**：
-- 🔧 开发调试
-- 🐛 Bug 排查
-- 🧪 功能测试
+**特点**
+- 查看所有调试信息
+- 方便排查问题
+- 适合交互式开发
 
-### 场景 2: 生产环境（精简控制台）
+### 场景 2: 生产环境
 
 ```python
 from utils import setup_logging
@@ -97,119 +313,61 @@ from utils import setup_logging
 # 控制台只显示重要信息，文件记录详细日志
 setup_logging(
     log_dir='./production_logs',
-    console_level='WARNING',  # 控制台只显示警告和错误
-    file_level='INFO'         # 文件记录 INFO 及以上
+    console_level='WARNING',
+    file_level='INFO'
 )
 ```
 
-**适用于**：
-- 🚀 生产部署
-- 📊 长期运行任务
-- 🖥️ 服务器应用
+**特点**
+- 减少控制台输出
+- 避免日志刷屏
+- 保留文件日志便于回溯
 
-### 场景 3: 训练脚本（平衡日志）
+### 场景 3: 训练脚本
 
 ```python
 from utils import setup_logging
 
-# 控制台显示关键信息，文件记录详细日志
+# 平衡配置
 setup_logging(
     log_dir='./training_logs',
-    console_level='INFO',   # 控制台显示 INFO 及以上
-    file_level='DEBUG'      # 文件记录所有信息
+    console_level='INFO',
+    file_level='DEBUG'
 )
-
-# 在训练中使用
-from loguru import logger
-
-logger.info("开始训练...")
-logger.debug(f"批次大小: {batch_size}, 学习率: {lr}")
-logger.success(f"Epoch 1 完成: 准确率 {acc:.2f}%")
-logger.warning("GPU 内存使用率超过 90%")
-logger.error("训练失败: CUDA out of memory")
 ```
 
-**推荐配置**：
-- ✅ 控制台：`INFO`（不太吵闹）
-- ✅ 文件：`DEBUG`（方便回溯）
+**特点**
+- 控制台显示训练进度
+- 文件记录详细调试信息
+- 推荐配置
 
-### 场景 4: 禁用文件日志（仅控制台）
+### 场景 4: 仅控制台输出
 
 ```python
 from utils import setup_logging
 
-# 只配置控制台
+# 禁用文件日志
 setup_logging(
-    log_dir='/tmp/throw_away',  # 临时目录
+    log_dir='/tmp/throw_away',
     console_level='INFO',
-    file_level='CRITICAL'  # 设置为最高级别，基本不会记录
+    file_level='CRITICAL'  # 几乎不会记录
 )
 ```
 
-**适用于**：
-- 🧪 快速测试
-- 💻 交互式开发
+**特点**
+- 快速测试
+- 不产生日志文件
+- 适合临时脚本
 
----
+## 与其他工具集成
 
-## 📊 日志级别说明
-
-| 级别 | 数值 | 用途 | 示例 |
-|------|-----|------|------|
-| `DEBUG` | 10 | 详细调试信息 | 变量值、函数调用 |
-| `INFO` | 20 | 一般信息 | 程序进度、状态更新 |
-| `SUCCESS` | 25 | 成功消息 | 操作完成、验证通过 |
-| `WARNING` | 30 | 警告信息 | 资源不足、配置问题 |
-| `ERROR` | 40 | 错误信息 | 异常捕获、操作失败 |
-| `CRITICAL` | 50 | 严重错误 | 系统崩溃、数据损坏 |
-
-### 使用建议
-
-```python
-from loguru import logger
-
-# DEBUG: 详细的调试信息
-logger.debug(f"收到输入: shape={inputs.shape}, dtype={inputs.dtype}")
-
-# INFO: 程序流程信息
-logger.info("开始加载数据集...")
-logger.info(f"训练集大小: {len(train_dataset)}")
-
-# SUCCESS: 成功消息（loguru 特有）
-logger.success("模型训练完成！")
-logger.success(f"最佳准确率: {best_acc:.2f}%")
-
-# WARNING: 潜在问题
-logger.warning("GPU 内存使用率: 95%")
-logger.warning("学习率可能过大，考虑降低")
-
-# ERROR: 错误但可继续
-logger.error("保存检查点失败，将在下个 epoch 重试")
-
-# CRITICAL: 严重错误，需要立即处理
-logger.critical("CUDA 不可用，无法继续训练")
-```
-
----
-
-## 🔧 高级用法
-
-### 1. 在配置文件中使用
-
-```yaml
-# config.yaml
-logging:
-  log_dir: "./logs"
-  console_level: "INFO"
-  file_level: "DEBUG"
-```
+### 与配置模块集成
 
 ```python
 from utils import setup_config, setup_logging
 
 config = setup_config(DEFAULT_CONFIG, 'config.yaml', {})
 
-# 从配置初始化日志
 setup_logging(
     log_dir=config.logging.log_dir,
     console_level=config.logging.console_level,
@@ -217,241 +375,60 @@ setup_logging(
 )
 ```
 
-### 2. 异常日志（自动堆栈跟踪）
+### 与异常装饰器集成
 
 ```python
+from utils import setup_logging, log_errors, NtfyNotifier
 from loguru import logger
-
-try:
-    result = risky_operation()
-except Exception as e:
-    # 使用 logger.exception 自动记录堆栈
-    logger.exception("操作失败")
-    # 等价于：
-    # logger.error(f"操作失败: {e}")
-    # traceback.print_exc()
-```
-
-### 3. 结构化日志（使用上下文）
-
-```python
-from loguru import logger
-
-# 添加额外上下文
-logger.bind(epoch=10, lr=0.001).info("训练开始")
-# 输出: ... | epoch=10 lr=0.001 | 训练开始
-
-# 在函数中使用
-def train_epoch(epoch, lr):
-    log = logger.bind(epoch=epoch, lr=lr)
-    log.info("Epoch 开始")
-    log.success("Epoch 完成")
-```
-
-### 4. 自定义日志格式（不推荐修改）
-
-如果确实需要自定义格式，可以修改 `logger_config.py` 中的 `log_format` 变量：
-
-```python
-# 默认格式
-log_format = (
-    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-    "<level>{level: <8}</level> | "
-    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-    "<level>{message}</level>"
-)
-```
-
-**输出示例**：
-```
-2025-11-04 14:30:22.123 | INFO     | main:train:45 - 开始训练...
-2025-11-04 14:30:23.456 | SUCCESS  | trainer:fit:102 - Epoch 1 完成
-```
-
-### 5. 多次调用 setup_logging（幂等性）
-
-```python
-from utils import setup_logging
-
-# 第一次调用
-setup_logging(log_dir='./logs1', console_level='INFO')
-
-# 第二次调用（会覆盖之前的配置）
-setup_logging(log_dir='./logs2', console_level='DEBUG')
-
-# 最终生效的是最后一次配置
-```
-
-**注意**：
-- ✅ `setup_logging` 是幂等的
-- ✅ 自动移除旧的处理器
-- ✅ 不会导致日志重复
-
----
-
-## ❓ 常见问题
-
-### Q1: 日志文件在哪里？
-
-**A**: 默认在 `./logs/` 目录下，文件名格式为 `log_YYYYMMDD.log`。
-
-```bash
-logs/
-├── log_20251103.log
-├── log_20251104.log
-└── log_20251104.log.1  # 轮转文件
-```
-
-### Q2: 如何只输出到控制台？
-
-**A**: 将 `file_level` 设置为 `CRITICAL`：
-
-```python
-setup_logging(console_level='INFO', file_level='CRITICAL')
-```
-
-### Q3: 日志文件太大怎么办？
-
-**A**: 已自动配置轮转：
-- 文件大小达到 10 MB 时自动创建新文件
-- 只保留最近 10 天的日志
-
-如需调整，修改 `logger_config.py`：
-```python
-rotation="10 MB",    # 改为 "5 MB" 或 "50 MB"
-retention="10 days"  # 改为 "7 days" 或 "30 days"
-```
-
-### Q4: 如何在多模块项目中使用？
-
-**A**: 只需在主入口调用一次 `setup_logging`：
-
-```python
-# main.py
-from utils import setup_logging
 
 setup_logging()
+notifier = NtfyNotifier()
 
-# 然后在任何模块中直接使用
-# module_a.py
-from loguru import logger
-logger.info("来自模块 A 的日志")
-
-# module_b.py
-from loguru import logger
-logger.info("来自模块 B 的日志")
-```
-
-### Q5: 日志颜色显示不正常？
-
-**A**: 检查终端是否支持 ANSI 颜色：
-- ✅ 支持：Linux/Mac 终端、Windows Terminal、VSCode 终端
-- ❌ 不支持：Windows CMD（部分版本）
-
-如果不支持，颜色代码会显示为原始字符。
-
-### Q6: 如何禁用某个模块的日志？
-
-**A**: 使用 logger 的过滤功能：
-
-```python
-from loguru import logger
-
-# 禁用特定模块
-logger.disable("transformers")  # 禁用 transformers 库的日志
-logger.disable("urllib3")       # 禁用 urllib3 的日志
-
-# 重新启用
-logger.enable("transformers")
-```
-
----
-
-## 📋 最佳实践
-
-### 1. 在训练脚本中使用
-
-```python
-from utils import setup_logging, setup_config
-from loguru import logger
-
+@log_errors(notifier=notifier, re_raise=True)
 def main():
-    # 1. 首先配置日志
-    setup_logging(log_dir='./logs', console_level='INFO', file_level='DEBUG')
-
-    # 2. 加载配置
-    logger.info("加载配置...")
-    config = setup_config(DEFAULT_CONFIG, 'config.yaml', {})
-    logger.success(f"配置加载完成: {config.experiment.name}")
-
-    # 3. 设置随机种子
-    logger.info(f"设置随机种子: {config.experiment.seed}")
-    set_random_seed(config.experiment.seed)
-
-    # 4. 训练
-    logger.info("开始训练...")
-    try:
-        trainer.fit(train_loader, val_loader, epochs=100)
-        logger.success("训练完成！")
-    except KeyboardInterrupt:
-        logger.warning("训练被用户中断")
-    except Exception as e:
-        logger.exception("训练失败")
-        raise
+    logger.info("程序开始")
+    # ... 训练代码 ...
+    logger.success("程序完成")
 
 if __name__ == '__main__':
     main()
 ```
 
-### 2. 记录关键操作
+### 与训练循环集成
 
 ```python
+from utils import setup_logging, Trainer
 from loguru import logger
 
-# 开始/结束
-logger.info("=" * 60)
-logger.info("开始数据预处理...")
-# ... 处理代码 ...
-logger.success("数据预处理完成")
+setup_logging(
+    log_dir='./logs',
+    console_level='INFO',
+    file_level='DEBUG'
+)
 
-# 资源使用
-from utils import log_memory_usage
-log_memory_usage("训练前")
-
-# 检查点保存
-logger.info(f"保存检查点: epoch_{epoch}.pth")
-checkpoint_manager.save_epoch_checkpoint(state, epoch)
-logger.success("检查点保存成功")
+# Trainer 内部会自动使用配置好的 logger
+trainer = Trainer(model, optimizer, criterion, device)
+trainer.fit(train_loader, val_loader, epochs=100)
 ```
 
-### 3. 错误处理
+## 设计原则
 
-```python
-from loguru import logger
+### 简单易用
+- 一行代码完成配置
+- 默认参数适合大多数场景
+- 无需手动管理处理器
 
-def load_model(path):
-    try:
-        logger.info(f"加载模型: {path}")
-        model = torch.load(path)
-        logger.success("模型加载成功")
-        return model
-    except FileNotFoundError:
-        logger.error(f"模型文件不存在: {path}")
-        return None
-    except Exception as e:
-        logger.exception("加载模型失败")
-        raise
-```
+### 自动管理
+- 自动轮转和清理
+- 自动编码处理（UTF-8）
+- 自动异步写入
 
----
+### 灵活配置
+- 分别控制控制台和文件级别
+- 支持自定义日志目录
+- 支持多次重新配置
 
-## 🎯 总结
-
-`setup_logging` 的核心优势：
-1. **简单易用**：一行代码完成配置
-2. **自动管理**：日志轮转、编码、异步
-3. **灵活配置**：分别控制控制台和文件级别
-4. **开发友好**：彩色输出、完整堆栈
-5. **生产就绪**：异步记录、自动清理
-
-配合 `loguru` 的强大功能，让日志记录变得轻松愉快！🎉
+### 生产就绪
+- 异步日志不阻塞主线程
+- 自动限制日志文件大小
+- 完整的异常堆栈跟踪

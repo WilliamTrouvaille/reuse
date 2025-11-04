@@ -1,697 +1,437 @@
-# `Trainer` 类完整使用指南（最终版）
+# 训练器模块使用指南
 
-## 📚 目录
-1. [快速开始](#快速开始)
-2. [两种初始化模式](#两种初始化模式)
-3. [进度条控制](#进度条控制)
-4. [自定义训练步骤](#自定义训练步骤)
-5. [高级功能](#高级功能)
-6. [完整示例项目](#完整示例项目)
-7. [常见问题](#常见问题)
+本文档详细说明 `utils/train.py` 模块中的训练器类。
 
----
+## 核心类
 
-## 🚀 快速开始
+### `Trainer` 类
 
-### 最小化示例（5 行代码）
+#### 功能
+可复用的 PyTorch 训练协调器（Coordinator），负责标准训练流程的编排，整合了性能优化、检查点管理、早停和通知等功能。
 
-```python
-from utils import Trainer, setup_logging, get_device
+#### 设计理念
 
-setup_logging()
-device = get_device('cuda')
-model = YourModel().to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-criterion = nn.CrossEntropyLoss()
+**职责分离**
+- Trainer 负责"如何训练"（How）
+- main.py 负责"训练什么"（What）
 
-# 创建 Trainer 并开始训练
-trainer = Trainer(model, optimizer, criterion, device, use_amp=True)
-history = trainer.fit(train_loader, val_loader, epochs=100)
-```
+**依赖注入**
+- 通过 `__init__` 接收所有已实例化的工具
+- 最大化灵活性和可测试性
 
-就这么简单！`Trainer` 会自动处理：
-- ✅ 训练/验证循环
-- ✅ 高性能指标跟踪（GPU 累积）
-- ✅ 进度条显示（可选）
-- ✅ 日志输出
-- ✅ 内存管理
+**模板方法**
+- 训练逻辑可通过重写 `_train_step()` 等方法定制
+- 支持多任务学习、对比学习等复杂场景
 
----
+**性能优先**
+- 默认集成高性能工具（MetricTracker, Progress, AMP）
 
-## 📐 两种初始化模式
-
-### 模式 1: 依赖注入模式（推荐，完全控制）
-
-适用场景：研究代码、需要灵活配置
+#### 初始化
 
 ```python
-from utils import Trainer, CheckpointManager, EarlyStopper, NtfyNotifier
-
-# 1. 准备核心组件
-device = get_device('cuda')
-model = ResNet18(num_classes=10).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-criterion = nn.CrossEntropyLoss()
-
-# 2. 准备可选工具
-ckpt_manager = CheckpointManager('./checkpoints', device=device, max_to_keep=3)
-early_stopper = EarlyStopper(patience=10, mode='max', delta=0.001)
-notifier = NtfyNotifier()
-
-# 3. 创建 Trainer（注入所有工具）
-trainer = Trainer(
-    model=model,
-    optimizer=optimizer,
-    criterion=criterion,
-    device=device,
-    # 注入工具
-    checkpoint_manager=ckpt_manager,
-    early_stopper=early_stopper,
-    notifier=notifier,
-    # 性能优化
-    use_amp=True,
+Trainer(
+    model, optimizer, criterion, device,
+    checkpoint_manager=None,
+    early_stopper=None,
+    notifier=None,
+    scheduler=None,
+    use_amp=False,
     grad_accum_steps=1,
-    max_grad_norm=1.0,
-    # 指标与日志
+    max_grad_norm=None,
     metric_to_track='acc',
     metric_mode='max',
     compute_top5=False,
     log_interval=1,
     val_interval=1,
-    # 进度条控制
     show_progress=True,
-    progress_update_interval=0.5
-)
-
-# 4. 开始训练
-history = trainer.fit(train_loader, val_loader, epochs=100)
-```
-
-**优势**:
-- ✅ 完全控制所有组件的创建和配置
-- ✅ 易于测试（可以注入 mock 对象）
-- ✅ 适合复杂的研究项目
-
-### 模式 2: 配置驱动模式（简化，适合标准流程）
-
-适用场景：生产环境、标准训练流程
-
-```python
-from utils import Trainer, setup_config
-
-# 1. 加载配置
-config = setup_config(
-    default_config=DEFAULT_CONFIG,
-    yaml_config_path='config.yaml',
-    cmd_args=vars(args)
-)
-
-# 2. 准备核心组件
-device = get_device(config.device)
-model = create_model(config).to(device)
-optimizer = create_optimizer(model, config)
-criterion = create_criterion(config)
-
-# 3. 使用 from_config 创建 Trainer
-trainer = Trainer.from_config(
-    model=model,
-    optimizer=optimizer,
-    criterion=criterion,
-    device=device,
-    config=config  # 传入完整配置对象
-)
-
-# 4. 开始训练
-history = trainer.fit(train_loader, val_loader)
-```
-
-**配置文件示例（config.yaml）**:
-```yaml
-training:
-  epochs: 100
-  use_amp: true
-  grad_accum_steps: 1
-  max_grad_norm: 1.0
-  patience: 10
-  min_delta: 0.001
-  metric_to_track: 'acc'
-  metric_mode: 'max'
-  compute_top5: false
-  log_interval: 1
-  val_interval: 1
-  show_progress: true
-  progress_update_interval: 0.5
-
-checkpoint:
-  enabled: true
-  save_dir: './checkpoints'
-  max_to_keep: 3
-
-ntfy:
-  enabled: true
-```
-
-**优势**:
-- ✅ 配置与代码分离，易于管理
-- ✅ 自动实例化所有工具
-- ✅ 适合标准训练流程
-
----
-
-## 🎬 进度条控制
-
-### 场景 1: 启用进度条（默认）
-
-```python
-trainer = Trainer(
-    model, optimizer, criterion, device,
-    show_progress=True,  # 默认值
-    progress_update_interval=0.5  # 每 0.5 秒更新一次
-)
-
-trainer.fit(train_loader, val_loader, epochs=100)
-```
-
-**输出**:
-```
-Epoch 1 [Train] |████████████████████| 196/196 [00:15<00:00, 12.8it/s, loss=0.5234, lr=1.0e-03]
-Epoch 1 [Val]   |████████████████████| 40/40 [00:02<00:00, 18.3it/s, loss=0.4123]
-Epoch 001 | Time: 17.2s | Train Loss: 0.5234 | Train Acc: 82.50% | Val Loss: 0.4123 | Val Acc: 85.20% | LR: 1.0e-03
-```
-
-### 场景 2: 禁用进度条（服务器/脚本模式）
-
-适用于：
-- ❌ 后台运行
-- ❌ 写入日志文件
-- ❌ 在非交互式环境中运行
-
-```python
-trainer = Trainer(
-    model, optimizer, criterion, device,
-    show_progress=False  # 禁用进度条
-)
-
-trainer.fit(train_loader, val_loader, epochs=100)
-```
-
-**输出**（只有 epoch 总结）:
-```
-Epoch 001 | Time: 17.2s | Train Loss: 0.5234 | Train Acc: 82.50% | Val Loss: 0.4123 | Val Acc: 85.20% | LR: 1.0e-03
-Epoch 002 | Time: 16.8s | Train Loss: 0.4123 | Train Acc: 85.30% | Val Loss: 0.3821 | Val Acc: 87.10% | LR: 1.0e-03
-```
-
-### 场景 3: 调整进度条更新频率
-
-```python
-# 更新频率更高（更平滑，但可能影响性能）
-trainer = Trainer(
-    model, optimizer, criterion, device,
-    show_progress=True,
-    progress_update_interval=0.1  # 每 0.1 秒更新
-)
-
-# 更新频率更低（节省 I/O，推荐用于快速 GPU）
-trainer = Trainer(
-    model, optimizer, criterion, device,
-    show_progress=True,
-    progress_update_interval=2.0  # 每 2 秒更新
+    progress_update_interval=1.5
 )
 ```
 
-**推荐设置**:
-- 慢速训练（CPU/小模型）: `0.5s` - `1.0s`
-- 快速训练（GPU/大模型）: `1.0s` - `2.0s`
-- 超快训练（多 GPU）: `2.0s` - `5.0s`
+**核心参数（必需）**
 
----
+| 参数 | 类型 | 说明 |
+|-----|------|------|
+| `model` | `nn.Module` | PyTorch 模型（应已 `.to(device)`） |
+| `optimizer` | `Optimizer` | PyTorch 优化器 |
+| `criterion` | `nn.Module` | 损失函数 |
+| `device` | `str` \| `torch.device` | 计算设备 |
 
-## 🎨 自定义训练步骤
+**可选工具（依赖注入）**
 
-### 场景 4: 多任务学习（分类 + 分割）
+| 参数 | 类型 | 说明 |
+|-----|------|------|
+| `checkpoint_manager` | `CheckpointManager` \| `None` | 检查点管理器 |
+| `early_stopper` | `EarlyStopper` \| `None` | 早停器 |
+| `notifier` | `NtfyNotifier` \| `None` | Ntfy 通知器 |
+| `scheduler` | `_LRScheduler` \| `None` | 学习率调度器 |
 
-```python
-from utils import Trainer
+**性能优化配置**
 
-class MultiTaskTrainer(Trainer):
-    """多任务训练器：同时训练分类和分割"""
-    
-    def __init__(self, model, optimizer, criterion_cls, criterion_seg, device, **kwargs):
-        # 注意：不传入 criterion，我们自己管理多个损失函数
-        super().__init__(
-            model=model,
-            optimizer=optimizer,
-            criterion=None,  # 不使用
-            device=device,
-            **kwargs
-        )
-        self.criterion_cls = criterion_cls
-        self.criterion_seg = criterion_seg
-    
-    def _train_step(self, batch):
-        """重写训练步骤以支持多任务"""
-        # 解包多任务数据
-        inputs, target_cls, target_seg = batch
-        
-        inputs = inputs.to(self.device, non_blocking=True)
-        target_cls = target_cls.to(self.device, non_blocking=True)
-        target_seg = target_seg.to(self.device, non_blocking=True)
-        
-        # 前向传播（多个输出）
-        with autocast(device_type=self.device.type, enabled=(self.scaler is not None)):
-            out_cls, out_seg = self.model(inputs)
-            
-            # 计算多个损失
-            loss_cls = self.criterion_cls(out_cls, target_cls)
-            loss_seg = self.criterion_seg(out_seg, target_seg)
-            
-            # 加权组合
-            total_loss = loss_cls + 0.5 * loss_seg
-        
-        return {
-            'loss': total_loss,
-            'outputs': out_cls,     # 用于计算准确率
-            'targets': target_cls
-        }
-    
-    def _eval_step(self, batch):
-        """重写评估步骤"""
-        return self._train_step(batch)
+| 参数 | 类型 | 默认值 | 说明 |
+|-----|------|-------|------|
+| `use_amp` | `bool` | `False` | 是否使用自动混合精度 |
+| `grad_accum_steps` | `int` | `1` | 梯度累积步数 |
+| `max_grad_norm` | `float` \| `None` | `None` | 梯度裁剪的最大范数 |
 
-# 使用
-trainer = MultiTaskTrainer(
-    model=multi_task_model,
-    optimizer=optimizer,
-    criterion_cls=nn.CrossEntropyLoss(),
-    criterion_seg=nn.BCEWithLogitsLoss(),
-    device=device,
-    use_amp=True,
-    show_progress=True
-)
+**指标与日志配置**
 
-trainer.fit(train_loader, val_loader, epochs=100)
-```
+| 参数 | 类型 | 默认值 | 说明 |
+|-----|------|-------|------|
+| `metric_to_track` | `str` | `'acc'` | 早停/最佳模型跟踪的指标键 |
+| `metric_mode` | `Literal['min', 'max']` | `'max'` | 指标优化方向 |
+| `compute_top5` | `bool` | `False` | 是否计算 Top-5 准确率 |
+| `log_interval` | `int` | `1` | 详细日志记录间隔（epoch） |
+| `val_interval` | `int` | `1` | 验证间隔（epoch） |
 
-### 场景 5: 对比学习（SimCLR）
+**进度条配置**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|-----|------|-------|------|
+| `show_progress` | `bool` | `True` | 是否显示进度条 |
+| `progress_update_interval` | `float` | `1.5` | 进度条更新间隔（秒） |
+
+#### 类方法
+
+**`from_config(model, optimizer, criterion, device, config, scheduler=None)`**
+- 功能：配置驱动模式，从 config 对象自动实例化所有工具
+- 参数：
+  - `model`, `optimizer`, `criterion`, `device`, `scheduler`: 同 `__init__`
+  - `config` (Any): 完整配置对象，必须包含子配置
+- 返回值：配置好的 `Trainer` 实例
+- 说明：自动从 `config.training`, `config.checkpoint`, `config.ntfy` 创建工具实例
+
+**config 对象结构要求**
 
 ```python
-from utils import Trainer
-import torch.nn.functional as F
+config.training:
+    use_amp: bool
+    grad_accum_steps: int
+    max_grad_norm: float | None
+    metric_to_track: str
+    metric_mode: str
+    compute_top5: bool
+    log_interval: int
+    val_interval: int
+    patience: int  # >0 启用早停
+    show_progress: bool
+    progress_update_interval: float
 
-class ContrastiveTrainer(Trainer):
-    """对比学习训练器（SimCLR 风格）"""
-    
-    def __init__(self, model, optimizer, device, temperature=0.5, **kwargs):
-        super().__init__(
-            model=model,
-            optimizer=optimizer,
-            criterion=None,  # 对比学习不需要传统损失
-            device=device,
-            **kwargs
-        )
-        self.temperature = temperature
-    
-    def _train_step(self, batch):
-        """重写训练步骤以计算对比损失"""
-        # SimCLR: batch 包含两个增强视图
-        (view1, view2), _ = batch
-        
-        view1 = view1.to(self.device, non_blocking=True)
-        view2 = view2.to(self.device, non_blocking=True)
-        
-        with autocast(device_type=self.device.type, enabled=(self.scaler is not None)):
-            # 获取嵌入
-            z1 = self.model(view1)
-            z2 = self.model(view2)
-            
-            # 归一化
-            z1 = F.normalize(z1, dim=1)
-            z2 = F.normalize(z2, dim=1)
-            
-            # 计算对比损失
-            batch_size = z1.size(0)
-            z = torch.cat([z1, z2], dim=0)
-            
-            sim_matrix = torch.mm(z, z.T) / self.temperature
-            labels = torch.arange(batch_size, device=self.device)
-            labels = torch.cat([labels + batch_size, labels], dim=0)
-            
-            loss = F.cross_entropy(sim_matrix, labels)
-        
-        return {
-            'loss': loss,
-            'outputs': sim_matrix[:batch_size],
-            'targets': labels[:batch_size]
-        }
+config.checkpoint:
+    enabled: bool
+    save_dir: str
+    max_to_keep: int
 
-# 使用
-trainer = ContrastiveTrainer(
-    model=simclr_model,
-    optimizer=optimizer,
-    device=device,
-    temperature=0.5,
-    use_amp=True,
-    show_progress=False  # 对比学习通常较快，可以禁用进度条
-)
-
-trainer.fit(contrastive_loader, None, epochs=200)
+config.ntfy:
+    enabled: bool
 ```
 
-### 场景 6: 自定义钩子（集成 Weights & Biases）
+#### 公共方法
+
+**`fit(train_loader, val_loader=None, epochs=100)`**
+- 功能：主训练循环（唯一的公共方法）
+- 参数：
+  - `train_loader` (DataLoader): 训练数据加载器
+  - `val_loader` (DataLoader, 可选): 验证数据加载器
+  - `epochs` (int, 可选): 总训练轮数，默认为 `100`
+- 返回值：包含训练历史和最佳指标的字典
+  - `'history'`: 每个 epoch 的指标列表
+  - `'best_metric'`: 最佳验证指标值
+- 异常处理：
+  - `KeyboardInterrupt`: 自动保存中断检查点
+  - `Exception`: 记录错误并发送通知
+- 副作用：
+  - 自动发送开始/成功/失败通知（如果启用）
+  - 自动保存检查点（如果启用）
+  - 自动触发早停（如果启用）
+
+**`get_current_lr()`**
+- 功能：获取当前学习率
+- 返回值：`float`
+
+**`get_training_history()`**
+- 功能：获取训练历史
+- 返回值：包含每个 epoch 指标的列表
+
+#### 可重写的保护方法
+
+这些方法供子类定制训练逻辑，支持多任务学习、对比学习等复杂场景。
+
+**`_train_step(batch)`**
+- 功能：单个训练步骤的模板方法
+- 参数：
+  - `batch`: 来自 DataLoader 的一个批次（通常是 `(inputs, targets)`）
+- 返回值：必须包含以下键的字典
+  - `'loss'` (Tensor): 当前 batch 的损失（标量）
+  - `'outputs'` (Tensor): 模型输出的 logits (shape: [batch, num_classes])
+  - `'targets'` (Tensor): 真实标签 (shape: [batch])
+- 默认实现：标准分类任务
+  - 输入：`(images, labels)`
+  - 输出：`logits`
+  - 损失：`criterion(logits, labels)`
+
+**`_eval_step(batch)`**
+- 功能：单个评估步骤的模板方法
+- 参数：同 `_train_step()`
+- 返回值：同 `_train_step()`
+- 默认实现：与 `_train_step()` 相同（但在 eval 模式和 no_grad 下）
+
+**`_on_train_epoch_end(epoch, train_metrics)`**
+- 功能：训练 epoch 结束时的钩子
+- 参数：
+  - `epoch` (int): 当前 epoch 编号
+  - `train_metrics` (dict): 训练指标
+- 返回值：无
+- 默认实现：空（什么都不做）
+- 用途：记录额外信息（如权重直方图）、更新可视化等
+
+**`_on_eval_epoch_end(epoch, val_metrics)`**
+- 功能：评估 epoch 结束时的钩子
+- 参数：
+  - `epoch` (int): 当前 epoch 编号
+  - `val_metrics` (dict): 验证指标
+- 返回值：无
+- 默认实现：空（什么都不做）
+
+#### 内部机制
+
+##### 训练循环流程
+
+```
+fit() 主循环
+├── _main_training_loop()
+│   ├── _train_epoch()
+│   │   ├── _train_epoch_inner_loop()
+│   │   │   ├── _train_step() (可重写)
+│   │   │   ├── backward()
+│   │   │   ├── optimizer.step()
+│   │   │   └── metric_tracker.update()
+│   │   └── metric_tracker.compute()
+│   ├── _on_train_epoch_end() (钩子)
+│   ├── _eval_epoch()
+│   │   ├── _eval_epoch_inner_loop()
+│   │   │   ├── _eval_step() (可重写)
+│   │   │   └── metric_tracker.update()
+│   │   └── metric_tracker.compute()
+│   ├── _on_eval_epoch_end() (钩子)
+│   ├── _step_scheduler()
+│   ├── _log_epoch_metrics()
+│   └── _save_and_check_stop()
+│       ├── _build_checkpoint_state()
+│       ├── checkpoint_manager.save_epoch_checkpoint()
+│       ├── early_stopper.step()
+│       └── checkpoint_manager.save_best_model()
+└── _cleanup()
+```
+
+##### 梯度累积机制
 
 ```python
-from utils import Trainer
-import wandb
+for step, batch in enumerate(loader):
+    # 1. 前向传播
+    step_result = self._train_step(batch)
+    loss = step_result['loss']
 
-class WandbTrainer(Trainer):
-    """集成 W&B 日志的训练器"""
-    
-    def __init__(self, *args, wandb_project='my-project', **kwargs):
-        super().__init__(*args, **kwargs)
-        
-        # 初始化 wandb
-        wandb.init(project=wandb_project)
-        wandb.watch(self.model)
-    
-    def _on_train_epoch_end(self, epoch, train_metrics):
-        """训练结束时记录到 wandb"""
-        wandb.log({
-            'epoch': epoch,
-            'train/loss': train_metrics['loss'],
-            'train/acc': train_metrics['acc'],
-            'lr': train_metrics.get('lr', 0)
-        })
-    
-    def _on_eval_epoch_end(self, epoch, val_metrics):
-        """验证结束时记录到 wandb"""
-        wandb.log({
-            'epoch': epoch,
-            'val/loss': val_metrics['loss'],
-            'val/acc': val_metrics['acc']
-        })
+    # 2. 缩放损失
+    scaled_loss = loss / self.grad_accum_steps
 
-# 使用
-trainer = WandbTrainer(
-    model=model,
-    optimizer=optimizer,
-    criterion=criterion,
-    device=device,
-    wandb_project='cifar10-resnet',
-    show_progress=True
-)
+    # 3. 反向传播（累积梯度）
+    if self.scaler:
+        self.scaler.scale(scaled_loss).backward()
+    else:
+        scaled_loss.backward()
+
+    # 4. 仅在累积步数达到时更新参数
+    if (step + 1) % self.grad_accum_steps == 0:
+        # 梯度裁剪
+        if self.max_grad_norm is not None:
+            if self.scaler:
+                self.scaler.unscale_(self.optimizer)
+            torch.nn.utils.clip_grad_norm_(
+                self.model.parameters(),
+                self.max_grad_norm
+            )
+
+        # 优化器步骤
+        if self.scaler:
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
+            self.optimizer.step()
+
+        # 清空梯度
+        self.optimizer.zero_grad(set_to_none=True)
 ```
 
----
-
-## 🔧 高级功能
-
-### 梯度累积（模拟大 Batch Size）
+##### AMP（自动混合精度）支持
 
 ```python
-# 显存只有 8GB，但想要 batch_size=512 的效果
-# 方案：batch_size=128 + grad_accum_steps=4
+# 初始化时
+self.scaler = GradScaler() if (use_amp and device.type == 'cuda') else None
 
-trainer = Trainer(
-    model=model,
-    optimizer=optimizer,
-    criterion=criterion,
-    device=device,
-    grad_accum_steps=4,  # 累积 4 步再更新
-    use_amp=True,         # 进一步节省显存
-    show_progress=True
-)
+# 前向传播时
+with autocast('cuda', enabled=(self.scaler is not None)):
+    outputs = self.model(inputs)
+    loss = self.criterion(outputs, targets)
 
-# 等效于 batch_size=512，但只用 batch_size=128 的显存
-train_loader = DataLoader(dataset, batch_size=128, ...)
-trainer.fit(train_loader, val_loader, epochs=100)
+# 反向传播时
+if self.scaler:
+    self.scaler.scale(loss).backward()
+    self.scaler.step(self.optimizer)
+    self.scaler.update()
+else:
+    loss.backward()
+    self.optimizer.step()
 ```
 
-### 梯度裁剪（防止梯度爆炸）
+##### 学习率调度器兼容性
 
 ```python
-trainer = Trainer(
-    model=model,
-    optimizer=optimizer,
-    criterion=criterion,
-    device=device,
-    max_grad_norm=1.0,  # 裁剪梯度范数到 1.0
-    show_progress=True
-)
+def _step_scheduler(self, val_metrics):
+    if isinstance(self.scheduler, ReduceLROnPlateau):
+        # ReduceLROnPlateau 需要传入指标
+        metric_value = val_metrics.get(self.metric_to_track)
+        self.scheduler.step(metric_value)
+    else:
+        # 其他 scheduler（StepLR, CosineAnnealingLR 等）
+        self.scheduler.step()
 ```
 
-### 学习率调度器（自动兼容）
+##### 检查点自动恢复
 
 ```python
-from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
+def _load_checkpoint(self):
+    checkpoint = self.checkpoint_manager.load_latest_checkpoint()
 
-# 1. CosineAnnealingLR: 余弦退火
-scheduler = CosineAnnealingLR(optimizer, T_max=100)
+    if checkpoint:
+        # 恢复模型和优化器
+        self.model.load_state_dict(checkpoint['model_state'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state'])
+        self.start_epoch = checkpoint['epoch'] + 1
 
-# 2. ReduceLROnPlateau: 指标不改善时衰减（自动使用验证指标）
-scheduler = ReduceLROnPlateau(optimizer, mode='max', patience=5)
+        # 恢复可选组件
+        if self.scheduler and 'scheduler_state' in checkpoint:
+            self.scheduler.load_state_dict(checkpoint['scheduler_state'])
 
-# Trainer 会自动识别 scheduler 类型并正确调用
-trainer = Trainer(
-    model=model,
-    optimizer=optimizer,
-    criterion=criterion,
-    device=device,
-    scheduler=scheduler,
-    metric_to_track='acc',  # ReduceLROnPlateau 会使用这个指标
-    show_progress=True
-)
+        if self.early_stopper and 'early_stopper_state' in checkpoint:
+            self.early_stopper.load_state_dict(checkpoint['early_stopper_state'])
+
+        if self.scaler and 'scaler_state' in checkpoint:
+            self.scaler.load_state_dict(checkpoint['scaler_state'])
+
+        if 'best_metric' in checkpoint:
+            self.best_metric = checkpoint['best_metric']
+
+        if 'history' in checkpoint:
+            self.training_history = checkpoint['history']
 ```
 
-### Ntfy 通知（训练状态实时推送）
+##### 中断处理
 
 ```python
-from utils import Trainer, NtfyNotifier
-
-notifier = NtfyNotifier()
-
-trainer = Trainer(
-    model=model,
-    optimizer=optimizer,
-    criterion=criterion,
-    device=device,
-    notifier=notifier,  # 注入通知器
-    show_progress=True
-)
-
-# 训练开始、成功、失败时会自动发送通知到手机
-trainer.fit(train_loader, val_loader, epochs=100)
+try:
+    self._main_training_loop(...)
+except KeyboardInterrupt:
+    logger.critical("检测到键盘中断 (Ctrl+C)")
+    self._handle_interrupt()  # 保存中断检查点
+    if self.notifier:
+        self.notifier.notify_error("训练被用户中断")
 ```
 
----
+#### 集成的工具
 
-## 📦 完整示例项目
+**MetricTracker**
+- 在 GPU 上累积指标（非阻塞）
+- 仅在 epoch 结束时同步一次
+- 性能提升 1.3-1.5x
 
-### `main.py` - CIFAR-10 完整训练脚本
+**Progress**
+- 显示实时训练进度
+- 支持自定义更新间隔
+- 可通过 `show_progress=False` 禁用
 
-```python
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-CIFAR-10 训练脚本（使用 utils.Trainer）
-"""
+**CheckpointManager**
+- 自动保存 Epoch 检查点
+- 滚动清理旧检查点
+- 支持最佳模型保存和中断恢复
 
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
-from torchvision.models import resnet18
+**EarlyStopper**
+- 监控验证指标
+- 自动判断是否为最佳模型
+- 触发早停时返回 `should_stop=True`
 
-from utils import (
-    setup_logging,
-    get_device,
-    set_random_seed,
-    Trainer,
-    CheckpointManager,
-    EarlyStopper,
-    NtfyNotifier,
-    save_dict_to_json
-)
+**NtfyNotifier**
+- 训练开始时发送低优先级通知
+- 训练成功时发送高优先级通知
+- 训练失败时发送最高优先级通知（包含错误堆栈）
 
+## 两种初始化模式
 
-def get_dataloaders(batch_size=256, num_workers=4):
-    """创建数据加载器"""
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-    ])
-    
-    transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-    ])
-    
-    train_dataset = datasets.CIFAR10(
-        root='./data', train=True, download=True, transform=transform_train
-    )
-    test_dataset = datasets.CIFAR10(
-        root='./data', train=False, download=True, transform=transform_test
-    )
-    
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True,
-        num_workers=num_workers, pin_memory=True
-    )
-    test_loader = DataLoader(
-        test_dataset, batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=True
-    )
-    
-    return train_loader, test_loader
+### 依赖注入模式（推荐）
 
+**特点**
+- 完全控制所有组件的创建和配置
+- 易于测试（可注入 mock 对象）
+- 适合复杂的研究项目
 
-def main():
-    # ========== 1. 配置 ==========
-    setup_logging(log_dir='./logs', console_level='INFO', file_level='DEBUG')
-    set_random_seed(42)
-    device = get_device('cuda')
-    
-    # ========== 2. 数据 ==========
-    train_loader, test_loader = get_dataloaders(batch_size=256, num_workers=4)
-    
-    # ========== 3. 模型 ==========
-    model = resnet18(num_classes=10).to(device)
-    
-    # (可选) 编译模型（PyTorch 2.0+）
-    if hasattr(torch, 'compile'):
-        model = torch.compile(model)
-    
-    # ========== 4. 优化器和损失 ==========
-    optimizer = torch.optim.SGD(
-        model.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4
-    )
-    criterion = nn.CrossEntropyLoss()
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
-    
-    # ========== 5. 工具 ==========
-    ckpt_manager = CheckpointManager('./checkpoints', device=device, max_to_keep=3)
-    early_stopper = EarlyStopper(patience=20, mode='max', delta=0.001)
-    notifier = NtfyNotifier()
-    
-    # ========== 6. 训练器 ==========
-    trainer = Trainer(
-        model=model,
-        optimizer=optimizer,
-        criterion=criterion,
-        device=device,
-        checkpoint_manager=ckpt_manager,
-        early_stopper=early_stopper,
-        notifier=notifier,
-        scheduler=scheduler,
-        use_amp=True,
-        grad_accum_steps=1,
-        max_grad_norm=None,
-        metric_to_track='acc',
-        metric_mode='max',
-        compute_top5=False,
-        log_interval=1,
-        val_interval=1,
-        show_progress=True,  # 启用进度条
-        progress_update_interval=0.5
-    )
-    
-    # ========== 7. 开始训练 ==========
-    try:
-        result = trainer.fit(
-            train_loader=train_loader,
-            val_loader=test_loader,
-            epochs=200
-        )
-        
-        # 保存训练历史
-        save_dict_to_json(result, './training_history.json')
-        
-    except KeyboardInterrupt:
-        notifier.notify_error("训练被用户中断", "Ctrl+C")
-    except Exception as e:
-        notifier.notify_error("训练失败", str(e))
-        raise
+**适用场景**
+- 研究代码
+- 需要灵活配置
+- 需要单元测试
 
+### 配置驱动模式
 
-if __name__ == '__main__':
-    main()
-```
+**特点**
+- 配置与代码分离
+- 自动实例化所有工具
+- 简化代码结构
 
-**运行**:
-```bash
-python main.py
-```
+**适用场景**
+- 生产环境
+- 标准训练流程
+- 多实验管理
 
----
+## 自定义扩展
 
-## ❓ 常见问题
+### 支持的场景
 
-### Q1: 如何禁用进度条？
+**多任务学习**
+- 重写 `_train_step()` 和 `_eval_step()`
+- 返回多个损失的加权和
+- 指定用于指标计算的主输出
 
-**A**: 设置 `show_progress=False`:
-```python
-trainer = Trainer(..., show_progress=False)
-```
+**对比学习**
+- 重写 `_train_step()`
+- 处理增强视图
+- 计算对比损失
 
-### Q2: 进度条更新太频繁，影响性能怎么办？
+**GAN 训练**
+- 创建两个 Trainer 实例（生成器和判别器）
+- 或重写 `_train_epoch()` 实现交替训练
 
-**A**: 增大 `progress_update_interval`:
-```python
-trainer = Trainer(..., progress_update_interval=2.0)  # 每 2 秒更新
-```
+**自定义日志**
+- 重写 `_on_train_epoch_end()` 和 `_on_eval_epoch_end()`
+- 集成 TensorBoard, Weights & Biases 等
 
-### Q3: 我的训练逻辑很特殊，Trainer 能适配吗？
+## 设计原则
 
-**A**: 可以！通过继承并重写 `_train_step()` 或 `_eval_step()` 即可。
+### 职责分离
+- Trainer 只负责训练流程编排
+- 不负责数据加载、模型定义、优化器创建
 
-### Q4: 支持多 GPU 训练吗？
+### 依赖注入优于配置
+- 优先使用 `__init__` 注入已实例化的工具
+- 配置驱动模式作为可选的简化方式
 
-**A**: 支持！在传入 model 之前用 `DataParallel` 包装：
-```python
-model = nn.DataParallel(model)
-trainer = Trainer(model, ...)
-```
+### 模板方法支持定制
+- 核心流程不可变（`fit()` 是 final 方法）
+- 关键步骤可重写（`_train_step()`, `_eval_step()` 等）
 
-### Q5: 如何查看训练历史？
+### 性能优先
+- 默认使用高性能工具（MetricTracker, Progress）
+- 支持 AMP, 梯度累积, 梯度裁剪
 
-**A**:
-```python
-result = trainer.fit(...)
-history = result['history']
-best_metric = result['best_metric']
-```
-
-### Q6: 配置驱动模式和依赖注入模式哪个更好？
-
-**A**:
-- **依赖注入模式**：研究代码、需要灵活配置 → 推荐
-- **配置驱动模式**：生产环境、标准流程 → 推荐
-
-两种模式可以混用！
-
----
-
-## 🎯 性能对比
-
-| 配置 | 吞吐量 (samples/s) | 相对加速 |
-|------|-------------------|---------|
-| 原始代码 | 6097 | 1.0x |
-| + MetricTracker | 8621 | 1.41x |
-| + AMP | 13889 | **2.28x** |
-| + 禁用进度条 | 14200 | **2.33x** |
-
-**结论**: `Trainer` + AMP + 合理配置可达 **2-2.5倍** 加速！
-
----
-
-## 📚 总结
-
-`Trainer` 类的最终设计：
-1. **两种初始化模式**：依赖注入（灵活） + 配置驱动（简化）
-2. **进度条可控**：`show_progress` 参数，适应不同场景
-3. **高度可定制**：4 个钩子方法 + 2 个模板方法
-4. **性能优化到位**：AMP + MetricTracker + Progress
-5. **健壮性强**：自动检查点、早停、中断处理、通知
-
-享受高效训练吧！🚀
+### 健壮性保障
+- 自动检查点保存和恢复
+- 中断处理（Ctrl+C）
+- 异常处理和通知
