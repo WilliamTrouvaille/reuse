@@ -267,7 +267,7 @@ def main():
         logger.success(f"已收集 {len(all_targets)} 个样本的预测结果")
 
         # --- 1.14.3 创建报告生成器并一键生成完整报告 ---
-        reporter = TrainingReporter(config.report)
+        reporter = TrainingReporter(config.reporter)
 
         # 使用 generate_full_report 一键生成所有图表和摘要
         reporter.generate_full_report(

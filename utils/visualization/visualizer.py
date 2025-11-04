@@ -72,9 +72,52 @@ class MetricsVisualizer:
         self.dpi = dpi
         self.figure_size = figure_size
 
-        # 更新默认样式
+        # --- 配置中文字体显示 ---
+        # 设置中文字体（按优先级尝试，Windows系统字体优先）
+        chinese_fonts = [
+            'Microsoft YaHei',      # 微软雅黑（Windows默认，最常用）
+            'Microsoft YaHei UI',   # 微软雅黑UI
+            'SimHei',               # 黑体
+            'SimSun',               # 宋体
+            'KaiTi',                # 楷体
+            'FangSong',             # 仿宋
+        ]
+
+        # 获取系统可用字体列表用于验证
+        from matplotlib.font_manager import FontManager
+        fm = FontManager()
+        available_fonts = {f.name for f in fm.ttflist}
+
+        selected_font = None
+        font_set = False
+        for font in chinese_fonts:
+            if font in available_fonts:
+                selected_font = font
+                plt.rcParams['font.sans-serif'] = [font]
+                font_set = True
+                logger.debug(f"成功设置中文字体: {font}")
+                break
+
+        if not font_set:
+            # 如果所有预定义字体都不可用，尝试找一个包含CJK的字体
+            logger.warning("未找到预定义的中文字体，尝试查找其他CJK字体...")
+            cjk_fonts = [f.name for f in fm.ttflist if 'CJK' in f.name or 'Chinese' in f.name]
+            if cjk_fonts:
+                selected_font = cjk_fonts[0]
+                plt.rcParams['font.sans-serif'] = [selected_font]
+                logger.info(f"使用备用字体: {selected_font}")
+            else:
+                logger.error("系统中未找到任何中文字体，中文将无法正常显示！")
+                selected_font = 'sans-serif'  # 使用默认字体
+
+        # 设置负号正常显示（避免显示为方块）
+        plt.rcParams['axes.unicode_minus'] = False
+
+        # 更新默认样式（关键：将字体配置也加入plot_config）
         self.plot_config = self.DEFAULT_STYLE.copy()
         self.plot_config['figure.dpi'] = dpi
+        self.plot_config['font.sans-serif'] = [selected_font]  # 添加字体配置
+        self.plot_config['axes.unicode_minus'] = False  # 添加负号配置
 
         # 尝试应用样式（如果不存在则使用默认）
         try:

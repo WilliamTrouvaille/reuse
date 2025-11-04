@@ -3,7 +3,7 @@
 # ============================================================
 experiment:
     # 实验名称，将用于日志和检查点文件夹（如果 save_dir 被设置为动态）
-    name: "default_experiment"
+    name: "CIFAR10 基准测试"
     # 全局随机种子，用于确保可复现性
     # 将在 utils.helpers.set_random_seed 中设置
     seed: 42
@@ -34,13 +34,15 @@ dataset:
 dataloader:
     # (性能) DataLoader 使用的子进程数
     # (在 Windows 上建议为 0，Linux 上 > 0)
-    num_workers: 8
+#    num_workers: 8
+    num_workers: 0
 
     # (性能) 允许数据加载器将张量复制到 CUDA 固定内存中
     pin_memory: true
 
     # (性能) 保持 worker 进程在 epoch 之间存活
-    persistent_workers: true # (仅在 num_workers > 0 时)
+    persistent_workers: false
+#    persistent_workers: true # (仅在 num_workers > 0 时)
 
     batch_size: 32
 
@@ -50,8 +52,18 @@ dataloader:
 model:
     # 模型的架构名称
     name: "ConvNet"
-    # (可以添加其他特定于模型的参数)
-    # dropout_rate: 0.1
+
+    # Dropout 比率，通常在 0.2 到 0.5 之间
+    # 过拟合调高此值，欠拟合调低此值
+    dropout_rate: 0.3
+
+    # 分类类别数
+    # 由数据集决定的固定值，必须根据使用的数据集进行设置
+    num_classes: 10
+
+    # 每个阶段的残差块数量，通常在 2 到 5 之间
+    # 较小的值适用于快速实验或简单任务，较大的值可能获得更高精度但也更容易过拟合且训练更慢
+    num_blocks: 3
 
 # ============================================================
 # 训练协调器配置 (Training)
@@ -61,7 +73,7 @@ training:
     # --- 1. 核心循环参数 (在 main.py 中使用) ---
 
     # 总训练轮数
-    epochs: 2
+    epochs: 1
     # 批次大小
     batch_size: 128
 
@@ -71,7 +83,7 @@ training:
     lr: 0.01
     # 使用的优化器类型 (例如: SGD, Adam)
     optimizer: "SGD"
-    
+
     weight_decay: 0.0001
     momentum: 0.9
 
@@ -88,6 +100,9 @@ training:
     # (可选) 梯度裁剪的最大范数。如果为 null 或 0 则不使用。
     # 依赖: utils.train.Trainer (max_grad_norm)
     max_grad_norm: 1.0
+
+    # 是否使用 torch.compile 优化
+    use_compile: false
 
     # --- 4. 验证与日志 (由 Trainer 读取) ---
 

@@ -124,9 +124,9 @@ class MetricsCollector:
         logger.debug(
             f"Epoch {epoch} 指标已记录: "
             f"train_loss={train_loss:.4f}, train_acc={train_acc:.2f}%, "
-            f"val_loss={val_loss:.4f if val_loss is not None else 'N/A'}, "
-            f"val_acc={val_acc:.2f if val_acc is not None else 'N/A'}%, "
-            f"time={epoch_time:.2f if epoch_time is not None else 'N/A'}s"
+            f"val_loss={f'{val_loss:.4f}' if val_loss is not None else 'N/A'}, "
+            f"val_acc={f'{val_acc:.2f}' if val_acc is not None else 'N/A'}%, "
+            f"time={f'{epoch_time:.2f}' if epoch_time is not None else 'N/A'}s"
         )
 
     def set_predictions(
