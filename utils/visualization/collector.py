@@ -54,6 +54,27 @@ class MetricsCollector:
 
         logger.debug("MetricsCollector 已初始化。")
 
+    def add_train_loss(self, loss: float):
+        """添加训练损失"""
+        self.train_losses.append(loss)
+
+    def add_val_loss(self, loss: float):
+        """添加验证损失"""
+        self.val_losses.append(loss)
+
+    def add_train_acc(self, acc: float):
+        """添加训练准确率"""
+        self.train_accs.append(acc)
+
+    def add_val_acc(self, acc: float):
+        """添加验证准确率"""
+        self.val_accs.append(acc)
+
+    def add_epoch_time(self, time: float):
+        """添加epoch耗时"""
+        self.epoch_times.append(time)
+        self.total_time += time
+
     def update_epoch_metrics(
             self,
             epoch: int,
