@@ -284,8 +284,11 @@ class Trainer:
         """
         total_start_time = time.monotonic()
 
+        # 计算实际训练的轮次数
+        num_epochs_to_train = epochs - self.start_epoch
+
         logger.info("=" * 80)
-        logger.info(f"🚀 开始训练: Epoch {self.start_epoch + 1} -> {epochs}".center(80))
+        logger.info(f"🚀 开始训练: Epoch {self.start_epoch + 1} -> {epochs}（共 {num_epochs_to_train} 轮）".center(80))
         logger.info(f"   跟踪指标: '{self.metric_to_track}' (模式: {self.metric_mode})".center(80))
         if self.early_stopper:
             logger.info(f"   早停容忍: {self.early_stopper.patience} epochs".center(80))
@@ -309,6 +312,8 @@ class Trainer:
             self._handle_interrupt()
             if self.notifier:
                 self.notifier.notify_error("训练被用户中断", "KeyboardInterrupt")
+            # 重新抛出异常，确保程序直接退出而不是继续执行后续流程
+            raise
 
         except Exception as e:
             # --- 处理其他异常 ---
@@ -768,6 +773,7 @@ class Trainer:
 
             logger.success(f"训练已从 Epoch {self.start_epoch} 恢复")
             logger.info(f"已恢复的最佳指标 ({self.metric_to_track}): {self.best_metric:.4f}")
+            logger.info(f"提示: 训练将从 Epoch {self.start_epoch + 1} 继续，请在 fit() 中指定目标 epoch 数")
 
         except Exception as e:
             logger.error(f"加载检查点时发生错误: {e}")

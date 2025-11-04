@@ -3,10 +3,18 @@
 # ============================================================
 experiment:
     # 实验名称，将用于日志和检查点文件夹（如果 save_dir 被设置为动态）
-    name: "default_experiment"
+    name: "CIFAR10 基准测试"
     # 全局随机种子，用于确保可复现性
     # 将在 utils.helpers.set_random_seed 中设置
     seed: 42
+
+    # (性能) 是否启用 cuDNN 自动调优
+    # true: 启用 benchmark，在固定输入尺寸时可提升 20-30% 性能，但会牺牲可复现性
+    # false: 禁用 benchmark，保证完全可复现，但性能较低（默认）
+    # 依赖: utils.helpers.set_random_seed (enable_cudnn_benchmark)
+    enable_cudnn_benchmark: true
+
+    device: cuda
 
 # ============================================================
 # 数据集配置 (Dataset)
@@ -16,7 +24,7 @@ dataset:
     # 必须与 utils.data._DATASET_REGISTRY 中的键匹配
     name: "CIFAR10"
     # 数据集下载和存储的根路径
-    data_path: "./data"
+    dataset_path: "./data"
 
 # ============================================================
 # 数据加载器配置 (DataLoader)
@@ -26,11 +34,15 @@ dataset:
 dataloader:
     # (性能) DataLoader 使用的子进程数
     # (在 Windows 上建议为 0，Linux 上 > 0)
-    num_workers: 0
+    num_workers: 8
+
     # (性能) 允许数据加载器将张量复制到 CUDA 固定内存中
     pin_memory: true
+
     # (性能) 保持 worker 进程在 epoch 之间存活
-    # persistent_workers: true # (仅在 num_workers > 0 时)
+    persistent_workers: true # (仅在 num_workers > 0 时)
+
+    batch_size: 32
 
 # ============================================================
 # 模型配置 (Model)
@@ -47,79 +59,87 @@ model:
 # 本节的大部分参数由 utils.train.Trainer.from_config 直接读取
 training:
     # --- 1. 核心循环参数 (在 main.py 中使用) ---
-    
+
     # 总训练轮数
-    epochs: 100
+    epochs: 2
     # 批次大小
     batch_size: 128
-    
+
     # --- 2. 优化器参数 (在 main.py 中使用) ---
-    
+
     # 初始学习率
     lr: 0.01
     # 使用的优化器类型 (例如: SGD, Adam)
     optimizer: "SGD"
-    # (可以添加其他优化器参数)
-    # weight_decay: 0.0001
-    # momentum: 0.9
     
+    weight_decay: 0.0001
+    momentum: 0.9
+
     # --- 3. 性能与优化 (由 Trainer 读取) ---
-    
+
     # (性能) 是否使用自动混合精度 (AMP)
     # 依赖: utils.train.Trainer (use_amp)
     use_amp: true
-    
+
     # (性能) 梯度累积步数。
     # 依赖: utils.train.Trainer (grad_accum_steps)
     grad_accum_steps: 1
-    
+
     # (可选) 梯度裁剪的最大范数。如果为 null 或 0 则不使用。
     # 依赖: utils.train.Trainer (max_grad_norm)
     max_grad_norm: 1.0
-    
+
     # --- 4. 验证与日志 (由 Trainer 读取) ---
-    
+
     # 每隔多少个 epoch 记录一次详细日志
     # 依赖: utils.train.Trainer (log_interval)
     log_interval: 1
-    
+
     # 每隔多少个 epoch 运行一次验证集
     # 依赖: utils.train.Trainer (val_interval)
     val_interval: 1
-    
+
     # 是否计算 Top-5 准确率 (如果数据集类别 > 5)
     # 依赖: utils.train.Trainer (compute_top5)
     compute_top5: true
-    
+
     # --- 5. 早停与指标 (由 Trainer 读取) ---
-    
+
     # 用于早停和保存最佳模型的指标名称
     # 必须与 utils.metrics.MetricTracker.compute() 返回的键匹配
     # 依赖: utils.train.Trainer (metric_to_track)
     metric_to_track: "acc"
-    
+
     # 监控指标的模式: 'max' (越高越好) 或 'min' (越低越好)
     # 依赖: utils.train.Trainer (metric_mode)
     # 依赖: utils.early_stopping.EarlyStopper (mode)
     metric_mode: "max"
-    
+
     # 早停耐心：在停止前等待多少个 epoch 没有改善
     # 依赖: utils.early_stopping.EarlyStopper (patience)
-    patience: 10
-    
+    patience: 5
+
     # (可选) 被视为"改善"的最小变化量
     # 依赖: utils.early_stopping.EarlyStopper (min_delta)
     min_delta: 0.0
+
+    # 更新 `set_postfix` (I/O) 的最小间隔（秒）
+    # 依赖: utils.progress.Progress
+    progress_update_interval: 1.5
 
 # ============================================================
 # 检查点配置 (Checkpoint)
 # ============================================================
 # 本节由 utils.train.Trainer.from_config (通过 CheckpointManager) 读取
 checkpoint:
+    # 是否启用检查点保存功能
+    # 依赖: utils.train.Trainer.from_config
+    enabled: true
+
     # 保存检查点（.pth 文件）的目录
     # 依赖: utils.checkpoint_manager.CheckpointManager (save_dir)
     save_dir: "./checkpoints"
-    
+
     # 滚动保存最近的 K 个 epoch 检查点
     # (best_model.pth 和 interrupt_checkpoint.pth 不受此限制)
     # 依赖: utils.checkpoint_manager.CheckpointManager (max_to_keep)
@@ -144,12 +164,59 @@ logging:
 ntfy:
     # 是否启用 NTFY 手机通知 (true / false)
     enabled: true
-    
+
     # (可选) Ntfy 服务器 URL，如果自托管的话
     # 依赖: utils.ntfy_notifier.NtfyNotifier (server_url)
     server_url: "https://ntfy.sh"
-    
+
     # (可选) 目标 Ntfy 频道
     # (注意: utils.ntfy_notifier.py 中可能已硬编码)
     # 依赖: utils.ntfy_notifier.NtfyNotifier (topic)
     topic: "trouvaille_william_yK5aEPt72KfT6m9z"
+
+# ============================================================
+# 训练报告配置 (Reporter)
+# ============================================================
+# 本节由 utils.visualization.TrainingReporter 读取
+reporter:
+    # 报告保存根目录
+    save_dir: "./docs"
+
+    # 是否在报告目录中创建时间戳子目录（避免覆盖）
+    # true: 创建 ./docs/report_20251104_143022/
+    # false: 直接使用 ./docs/
+    use_timestamp: true
+
+    # 图表样式配置
+    plots:
+        # 图表分辨率 (DPI)
+        dpi: 100
+        # 默认图表尺寸 [width, height] (英寸)
+        figure_size: [10, 6]
+        # matplotlib 样式名称
+        style: "seaborn-v0_8-darkgrid"
+
+    # 可选图表开关（控制生成哪些图表）
+    enable_plots:
+        # 训练曲线（Loss & 准确率）
+        training_curves: true
+        # 混淆矩阵
+        confusion_matrix: true
+        # ROC 曲线
+        roc_curve: true
+        # 分类报告热图
+        classification_report: true
+        # Epoch 耗时分布
+        epoch_time_distribution: true
+
+    # ROC 曲线配置
+    roc:
+        # 多分类策略: 'ovr' (One-vs-Rest) 或 'ovo' (One-vs-One)
+        multi_class: "ovr"
+
+    # 混淆矩阵配置
+    confusion_matrix:
+        # 是否归一化显示（百分比）
+        normalize: true
+        # 颜色映射方案（例如: Blues, YlGnBu, Greens）
+        cmap: "Blues"

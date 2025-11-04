@@ -1,497 +1,304 @@
 #!/usr/bin/python
 # -*- coding:utf-8 -*-
 """
-Created on 2025/11/04
+Created on 2025-11-04T00:00:00
 @author  : William_Trouvaille
-@function: CIFAR-10 分类训练主程序
-@description: 完整的训练流程，检验 utils 工具包的运行效果
+@function: CIFAR10 分类任务主程序
+
+功能说明:
+    1. 指标跟踪 (utils/metrics.py):
+       - 使用 MetricTracker 在训练循环中高效跟踪指标（GPU端累积，避免频繁同步）
+       - 使用 MetricsCollector 收集训练历史数据，用于后续可视化
+
+    2. 通知推送 (utils/ntfy_notifier.py):
+       - 支持通过 NTFY 服务推送训练进度通知到手机
+       - 启用方式：在 config.yaml 中设置 ntfy.enabled: true
+       - 自动发送训练开始、成功和失败通知
+
+    3. 早停机制 (utils/early_stopping.py):
+       - 使用 EarlyStopper 自动监控验证指标并在不再改善时停止训练
+       - 配置方式：在 config.yaml 中设置 training.patience（>0 启用）
+
+    4. 可视化报告 (utils/visualization):
+       - 使用 MetricsCollector 收集所有训练数据
+       - 使用 TrainingReporter.generate_full_report() 一键生成：
+         * 训练曲线（损失和准确率）
+         * 混淆矩阵
+         * ROC 曲线
+         * 分类报告热图
+         * Epoch 耗时分布
+         * Markdown 格式的文本摘要
+       - 所有报告保存在 reports/ 目录下，支持时间戳子目录
 """
 
-import argparse
-import time
-from pathlib import Path
+import sys
 
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from loguru import logger
+from torch.optim import SGD
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
 
-from network import create_cifar10_model
+# 导入工具包
 from utils import (
     setup_logging,
     setup_config,
-    ConfigNamespace,
     set_random_seed,
     get_device,
+    load_dataset_info,
     count_parameters,
     Trainer,
     MetricsCollector,
     TrainingReporter
 )
 
-
-# ========================================================================
-# 1. 默认配置
-# ========================================================================
-
-DEFAULT_CONFIG = {
-    'experiment': {
-        'name': 'cifar10_baseline',
-        'seed': 42,
-        'device': 'cuda'
-    },
-
-    'data': {
-        'root': './data',
-        'batch_size': 128,
-        'num_workers': 4,
-        'pin_memory': True,
-        'download': True
-    },
-
-    'model': {
-        'num_classes': 10,
-        'num_blocks': 3,
-        'dropout_rate': 0.3
-    },
-
-    'training': {
-        'epochs': 50,
-        'lr': 0.1,
-        'momentum': 0.9,
-        'weight_decay': 5e-4,
-
-        # 性能优化
-        'use_amp': True,
-        'grad_accum_steps': 1,
-        'max_grad_norm': None,
-        'use_compile': True,
-
-        # 早停与指标
-        'patience': 10,
-        'metric_to_track': 'acc',
-        'metric_mode': 'max',
-        'compute_top5': False,
-
-        # 日志与验证间隔
-        'log_interval': 1,
-        'val_interval': 1,
-
-        # 进度条配置
-        'show_progress': True,
-        'progress_update_interval': 0.5
-    },
-
-    'checkpoint': {
-        'enabled': True,
-        'save_dir': './checkpoints',
-        'max_to_keep': 3
-    },
-
-    'logging': {
-        'log_dir': './logs',
-        'log_file': 'training.log'
-    },
-
-    'report': {
-        'save_dir': './reports',
-        'use_timestamp': True,
-
-        'plots': {
-            'style': 'seaborn-v0_8-darkgrid',
-            'dpi': 150,
-            'figure_size': [12, 8]
-        },
-
-        'enable_plots': {
-            'training_curves': True,
-            'confusion_matrix': True,
-            'roc_curve': True,
-            'classification_report': True,
-            'epoch_time_distribution': True
-        },
-
-        'confusion_matrix': {
-            'normalize': True,
-            'cmap': 'Blues'
-        },
-
-        'roc': {
-            'multi_class': 'ovr'
-        }
-    },
-
-    'ntfy': {
-        'enabled': False
-    }
-}
+# 导入网络
+from network import create_model
 
 
 # ========================================================================
-# 2. 数据加载
-# ========================================================================
-
-class CIFAR10DataModule:
-    """
-    CIFAR-10 数据模块，负责数据加载和预处理。
-
-    职责:
-        - 定义数据增强策略
-        - 创建训练集和测试集 DataLoader
-        - 管理数据集元信息
-    """
-
-    # CIFAR-10 数据集统计信息（用于归一化）
-    MEAN = (0.4914, 0.4822, 0.4465)
-    STD = (0.2470, 0.2435, 0.2616)
-
-    # CIFAR-10 类别名称
-    CLASSES = [
-        'airplane', 'automobile', 'bird', 'cat', 'deer',
-        'dog', 'frog', 'horse', 'ship', 'truck'
-    ]
-
-    def __init__(self, config: ConfigNamespace):
-        """
-        初始化数据模块。
-
-        参数:
-            config (ConfigNamespace): 数据配置对象
-        """
-        self.config = config
-        self.train_loader = None
-        self.test_loader = None
-
-        logger.info("CIFAR10DataModule 初始化完成")
-
-    def setup(self):
-        """
-        准备数据集和数据加载器。
-        """
-        logger.info("=" * 60)
-        logger.info("准备 CIFAR-10 数据集...".center(60))
-        logger.info("=" * 60)
-
-        # --- 1. 定义数据增强 ---
-        # 训练集增强：随机裁剪、随机水平翻转、归一化
-        train_transform = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),  # 随机裁剪（填充后）
-            transforms.RandomHorizontalFlip(),      # 随机水平翻转
-            transforms.ToTensor(),
-            transforms.Normalize(self.MEAN, self.STD)
-        ])
-
-        # 测试集增强：仅归一化
-        test_transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(self.MEAN, self.STD)
-        ])
-
-        logger.info("数据增强策略已定义")
-
-        # --- 2. 加载数据集 ---
-        train_dataset = datasets.CIFAR10(
-            root=self.config.root,
-            train=True,
-            download=self.config.download,
-            transform=train_transform
-        )
-
-        test_dataset = datasets.CIFAR10(
-            root=self.config.root,
-            train=False,
-            download=self.config.download,
-            transform=test_transform
-        )
-
-        logger.success(f"训练集样本数: {len(train_dataset)}")
-        logger.success(f"测试集样本数: {len(test_dataset)}")
-
-        # --- 3. 创建 DataLoader ---
-        self.train_loader = DataLoader(
-            train_dataset,
-            batch_size=self.config.batch_size,
-            shuffle=True,
-            num_workers=self.config.num_workers,
-            pin_memory=self.config.pin_memory,
-            persistent_workers=True if self.config.num_workers > 0 else False
-        )
-
-        self.test_loader = DataLoader(
-            test_dataset,
-            batch_size=self.config.batch_size,
-            shuffle=False,
-            num_workers=self.config.num_workers,
-            pin_memory=self.config.pin_memory,
-            persistent_workers=True if self.config.num_workers > 0 else False
-        )
-
-        logger.info(f"训练批次数: {len(self.train_loader)}")
-        logger.info(f"测试批次数: {len(self.test_loader)}")
-        logger.success("数据加载器创建完成！")
-        logger.info("=" * 60)
-
-    def get_class_names(self):
-        """获取类别名称列表"""
-        return self.CLASSES
-
-
-# ========================================================================
-# 3. 自定义 Trainer（扩展功能）
-# ========================================================================
-
-class CIFAR10Trainer(Trainer):
-    """
-    扩展 Trainer 类，添加指标收集功能。
-
-    新增功能:
-        - 与 MetricsCollector 集成
-        - 在训练和评估结束时自动收集指标
-    """
-
-    def __init__(self, *args, collector: MetricsCollector = None, **kwargs):
-        """
-        初始化训练器。
-
-        参数:
-            collector (MetricsCollector): 指标收集器实例
-            *args, **kwargs: 传递给父类的参数
-        """
-        super().__init__(*args, **kwargs)
-        self.collector = collector
-
-    def _on_train_epoch_end(self, epoch: int, train_metrics: dict):
-        """
-        （钩子）训练 epoch 结束时，记录指标到收集器。
-        """
-        if self.collector:
-            # 记录训练 Loss 和准确率
-            self.collector.add_train_loss(train_metrics.get('loss', 0.0))
-            self.collector.add_train_acc(train_metrics.get('acc', 0.0))
-
-    def _on_eval_epoch_end(self, epoch: int, val_metrics: dict):
-        """
-        （钩子）评估 epoch 结束时，记录指标到收集器。
-        """
-        if self.collector:
-            # 记录验证 Loss 和准确率
-            self.collector.add_val_loss(val_metrics.get('loss', 0.0))
-            self.collector.add_val_acc(val_metrics.get('acc', 0.0))
-
-
-# ========================================================================
-# 4. 主训练流程
+# 1. 主程序入口
 # ========================================================================
 
 def main():
-    """主程序入口"""
+    """主训练流程"""
 
-    # --- 1. 命令行参数解析 ---
-    parser = argparse.ArgumentParser(description='CIFAR-10 分类训练')
-    parser.add_argument('--config', type=str, default='', help='YAML 配置文件路径')
-    parser.add_argument('--epochs', type=int, help='训练轮数')
-    parser.add_argument('--batch_size', type=int, help='批次大小')
-    parser.add_argument('--lr', type=float, help='学习率')
-    parser.add_argument('--device', type=str, help='计算设备（cuda/cpu）')
-    args = parser.parse_args()
-
-    # 转换为字典（过滤 None 值）
-    args_dict = {k: v for k, v in vars(args).items() if v is not None and k != 'config'}
-
-    # --- 2. 配置管理 ---
+    # --- 1.1 配置加载 ---
     config = setup_config(
-        default_config=DEFAULT_CONFIG,
-        yaml_config_path=args.config,
-        cmd_args=args_dict
+        yaml_config_path="config.yaml",
+        cmd_args=None,
+        default_config=None
     )
 
-    # --- 3. 设置日志 ---
-    log_dir = Path(config.logging.log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
-
-    setup_logging(log_dir=str(log_dir))
+    # --- 1.2 日志配置 ---
+    setup_logging(
+        log_dir=config.logging.log_dir
+    )
 
     logger.info("=" * 80)
-    logger.info(f"开始 CIFAR-10 分类训练实验".center(80))
-    logger.info(f"实验名称: {config.experiment.name}".center(80))
+    logger.info(f"{config.experiment.name}".center(80))
     logger.info("=" * 80)
 
-    # --- 4. 设置随机种子 ---
+    # --- 1.3 设置随机种子 ---
     set_random_seed(config.experiment.seed)
 
-    # --- 5. 设备选择 ---
+    # --- 1.4 获取计算设备 ---
     device = get_device(config.experiment.device)
-    logger.info(f"使用设备: {device}")
 
-    # --- 6. 数据加载 ---
-    data_module = CIFAR10DataModule(config.data)
-    data_module.setup()
+    # --- 1.5 加载数据集 ---
+    logger.info("=" * 80)
+    logger.info("加载数据集".center(80))
+    logger.info("=" * 80)
 
-    # --- 7. 模型创建 ---
-    model = create_cifar10_model(
-        num_classes=config.model.num_classes,
-        num_blocks=config.model.num_blocks,
-        dropout_rate=config.model.dropout_rate,
-        device=device
+    dataset_info = load_dataset_info('CIFAR10', config.dataset.dataset_path)
+
+    logger.info(f"数据集信息:")
+    logger.info(f"  训练集大小: {len(dataset_info['dst_train'])}")
+    logger.info(f"  测试集大小: {len(dataset_info['dst_test'])}")
+    logger.info(f"  图像尺寸: {dataset_info['im_size']}")
+    logger.info(f"  通道数: {dataset_info['channel']}")
+    logger.info(f"  类别数: {dataset_info['num_classes']}")
+    logger.info(f"  类别名称: {dataset_info['class_names']}")
+
+    # --- 1.6 创建数据加载器 ---
+    train_loader = DataLoader(
+        dataset_info['dst_train'],
+        batch_size=config.dataloader.batch_size,
+        shuffle=True,
+        num_workers=config.dataloader.num_workers,
+        pin_memory=config.dataloader.pin_memory,
+        drop_last=True,  # 避免最后一个 batch 大小不一致
+        persistent_workers=config.dataloader.persistent_workers
     )
 
-    # （可选）使用 torch.compile 优化（PyTorch 2.0+）
+    val_loader = DataLoader(
+        dataset_info['dst_test'],
+        batch_size=config.dataloader.batch_size,
+        shuffle=False,
+        num_workers=config.dataloader.num_workers,
+        pin_memory=config.dataloader.pin_memory
+    )
+
+    logger.info(f"数据加载器已创建:")
+    logger.info(f"  训练批次数: {len(train_loader)}")
+    logger.info(f"  验证批次数: {len(val_loader)}")
+    logger.info(f"  批次大小: {config.dataloader.batch_size}")
+
+    # --- 1.7 创建模型 ---
+    logger.info("=" * 80)
+    logger.info("创建模型".center(80))
+    logger.info("=" * 80)
+
+    model = create_model(config)
+    model = model.to(device)
+
+    # 打印模型参数量
+    total_params = count_parameters(model, trainable_only=False)
+    trainable_params = count_parameters(model, trainable_only=True)
+    logger.info(f"模型参数统计:")
+    logger.info(f"  总参数量: {total_params:,}")
+    logger.info(f"  可训练参数: {trainable_params:,}")
+
+    # --- 1.8 可选: 使用 torch.compile 优化 ---
     if config.training.use_compile:
         try:
             logger.info("正在使用 torch.compile() 优化模型...")
+            # torch.compile 仅在 PyTorch 2.0+ 可用
             model = torch.compile(model)
-            logger.success("torch.compile() 优化已启用")
+            logger.success("torch.compile() 已启用")
         except Exception as e:
-            logger.warning(f"torch.compile() 失败，使用原始模型: {e}")
+            logger.warning(f"torch.compile() 失败，继续使用原始模型: {e}")
 
-    # 统计参数量
-    logger.info(f"模型参数量: {count_parameters(model):,}")
-
-    # --- 8. 损失函数与优化器 ---
-    criterion = nn.CrossEntropyLoss()
-
-    optimizer = optim.SGD(
+    # --- 1.9 创建优化器 ---
+    optimizer = SGD(
         model.parameters(),
         lr=config.training.lr,
         momentum=config.training.momentum,
         weight_decay=config.training.weight_decay
     )
 
-    # --- 9. 学习率调度器 ---
+    logger.info(f"优化器: SGD")
+    logger.info(f"  学习率: {config.training.lr}")
+    logger.info(f"  动量: {config.training.momentum}")
+    logger.info(f"  权重衰减: {config.training.weight_decay}")
+
+    # --- 1.10 创建学习率调度器 ---
     scheduler = CosineAnnealingLR(
         optimizer,
         T_max=config.training.epochs,
-        eta_min=1e-5
+        eta_min=1e-6
     )
 
-    logger.info(f"优化器: SGD (lr={config.training.lr}, momentum={config.training.momentum})")
-    logger.info(f"学习率调度: CosineAnnealingLR (T_max={config.training.epochs})")
+    logger.info(f"学习率调度器: CosineAnnealingLR")
+    logger.info(f"  T_max: {config.training.epochs}")
+    logger.info(f"  eta_min: 1e-6")
 
-    # --- 10. 初始化指标收集器 ---
-    collector = MetricsCollector()
+    # --- 1.11 创建损失函数 ---
+    criterion = nn.CrossEntropyLoss()
 
-    # --- 11. 创建训练器 ---
-    from utils import CheckpointManager, EarlyStopper
+    logger.info(f"损失函数: CrossEntropyLoss")
 
-    # 创建检查点管理器
-    ckpt_mgr = None
-    if config.checkpoint.enabled:
-        ckpt_mgr = CheckpointManager(
-            save_dir=config.checkpoint.save_dir,
-            device=device,
-            max_to_keep=config.checkpoint.max_to_keep
-        )
+    # --- 1.12 创建训练器 ---
+    logger.info("=" * 80)
+    logger.info("初始化训练器".center(80))
+    logger.info("=" * 80)
 
-    # 创建早停器
-    early_stop = None
-    if config.training.get('patience', 0) > 0:
-        early_stop = EarlyStopper(
-            patience=config.training.patience,
-            mode=config.training.metric_mode
-        )
-
-    # 创建自定义训练器
-    trainer = CIFAR10Trainer(
+    trainer = Trainer.from_config(
         model=model,
         optimizer=optimizer,
         criterion=criterion,
         device=device,
-        checkpoint_manager=ckpt_mgr,
-        early_stopper=early_stop,
-        scheduler=scheduler,
-        collector=collector,
-        use_amp=config.training.use_amp,
-        grad_accum_steps=config.training.grad_accum_steps,
-        max_grad_norm=config.training.get('max_grad_norm', None),
-        metric_to_track=config.training.metric_to_track,
-        metric_mode=config.training.metric_mode,
-        compute_top5=config.training.compute_top5,
-        log_interval=config.training.log_interval,
-        val_interval=config.training.val_interval,
-        show_progress=config.training.show_progress,
-        progress_update_interval=config.training.progress_update_interval
+        config=config,
+        scheduler=scheduler
     )
 
-    logger.info(f"训练器初始化完成: {trainer}")
+    # --- 1.13 开始训练 ---
+    logger.info("=" * 80)
+    logger.info("开始训练".center(80))
+    logger.info("=" * 80)
 
-    # --- 12. 开始训练 ---
-    start_time = time.monotonic()
+    result = trainer.fit(
+        train_loader=train_loader,
+        val_loader=val_loader,
+        epochs=config.training.epochs
+    )
+
+    # --- 1.14 生成训练报告 ---
+    logger.info("=" * 80)
+    logger.info("生成训练报告".center(80))
+    logger.info("=" * 80)
 
     try:
-        result = trainer.fit(
-            train_loader=data_module.train_loader,
-            val_loader=data_module.test_loader,
-            epochs=config.training.epochs
+        # --- 1.14.1 创建指标收集器并收集训练历史数据 ---
+        collector = MetricsCollector()
+
+        # 从训练历史中收集指标
+        history = result['history']
+        for epoch_data in history:
+            epoch = epoch_data['epoch']
+
+            # 使用 update_epoch_metrics 方法统一记录训练和验证指标
+            collector.update_epoch_metrics(
+                epoch=epoch,
+                train_loss=epoch_data.get('train_loss', 0.0),
+                train_acc=epoch_data.get('train_acc', 0.0),
+                val_loss=epoch_data.get('val_loss', None),
+                val_acc=epoch_data.get('val_acc', None),
+                epoch_time=epoch_data.get('epoch_time', None)
+            )
+
+        # --- 1.14.2 在测试集上进行完整预测（用于生成混淆矩阵、ROC曲线等）---
+        logger.info("正在收集测试集预测结果...")
+        model.eval()  # 设置为评估模式
+
+        all_predictions = []
+        all_targets = []
+        all_probabilities = []
+
+        import torch.nn.functional as F
+
+        with torch.no_grad():
+            for images, labels in val_loader:
+                images = images.to(device)
+                labels = labels.to(device)
+
+                # 前向传播
+                outputs = model(images)
+
+                # 获取预测标签
+                predictions = outputs.argmax(dim=1)
+                all_predictions.extend(predictions.cpu().numpy())
+
+                # 获取真实标签
+                all_targets.extend(labels.cpu().numpy())
+
+                # 获取预测概率（用于ROC曲线）
+                probabilities = F.softmax(outputs, dim=1)
+                all_probabilities.extend(probabilities.cpu().numpy())
+
+        # 将预测结果存储到收集器中
+        collector.set_predictions(
+            predictions=all_predictions,
+            targets=all_targets,
+            probabilities=all_probabilities
         )
 
-        total_time = time.monotonic() - start_time
+        logger.success(f"已收集 {len(all_targets)} 个样本的预测结果")
 
-        logger.info("=" * 80)
-        logger.success(f"训练完成！总耗时: {total_time:.2f} 秒".center(80))
-        logger.success(f"最佳验证准确率: {result['best_metric']:.2f}%".center(80))
-        logger.info("=" * 80)
+        # --- 1.14.3 创建报告生成器并一键生成完整报告 ---
+        reporter = TrainingReporter(config.report)
+
+        # 使用 generate_full_report 一键生成所有图表和摘要
+        reporter.generate_full_report(
+            collector=collector,
+            class_names=dataset_info['class_names']
+        )
+
+        logger.success(f"训练报告已保存至: {reporter.report_dir}")
 
     except Exception as e:
-        logger.error(f"训练过程中发生错误: {e}")
-        raise
+        logger.error(f"生成训练报告时出错: {e}")
+        logger.exception("详细错误信息:")
 
-    # --- 13. 最终评估（在测试集上）---
+    # --- 1.15 训练完成 ---
     logger.info("=" * 80)
-    logger.info("开始最终评估（测试集）...".center(80))
-    logger.info("=" * 80)
-
-    # 加载最佳模型
-    if trainer.checkpoint_manager:
-        best_checkpoint = trainer.checkpoint_manager.load_best_model()
-        if best_checkpoint:
-            model.load_state_dict(best_checkpoint['model_state'])
-            logger.success("已加载最佳模型")
-
-    # 评估模型并收集预测结果
-    model.eval()
-    all_predictions = []
-    all_targets = []
-    all_probabilities = []
-
-    with torch.no_grad():
-        for inputs, targets in data_module.test_loader:
-            inputs = inputs.to(device, non_blocking=True)
-            targets = targets.to(device, non_blocking=True)
-
-            # 前向传播
-            outputs = model(inputs)
-            probabilities = torch.softmax(outputs, dim=1)
-
-            # 收集结果
-            predictions = outputs.argmax(dim=1)
-            all_predictions.extend(predictions.cpu().numpy())
-            all_targets.extend(targets.cpu().numpy())
-            all_probabilities.extend(probabilities.cpu().numpy())
-
-    # 记录预测结果到收集器
-    collector.set_predictions(all_predictions, all_targets)
-    collector.set_probabilities(all_probabilities)
-
-    logger.success("最终评估完成！")
-
-    # --- 14. 生成训练报告 ---
-    logger.info("=" * 80)
-    logger.info("开始生成训练报告...".center(80))
+    logger.info("训练流程全部完成".center(80))
+    logger.info(f"最佳指标 ({config.training.metric_to_track}): {result['best_metric']:.4f}".center(80))
     logger.info("=" * 80)
 
-    reporter = TrainingReporter(config.report)
-    reporter.generate_full_report(
-        collector=collector,
-        class_names=data_module.get_class_names()
-    )
 
-    logger.info("=" * 80)
-    logger.success(f"所有任务完成！".center(80))
-    logger.info("=" * 80)
-
+# ========================================================================
+# 2. 程序入口
+# ========================================================================
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.critical("程序被用户中断 (Ctrl+C)")
+        sys.exit(1)
+    except Exception as e:
+        logger.critical(f"程序执行失败: {e}")
+        logger.exception("详细错误信息:")
+        sys.exit(1)

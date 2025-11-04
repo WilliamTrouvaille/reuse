@@ -1,48 +1,46 @@
 #!/usr/bin/python
 # -*- coding:utf-8 -*-
 """
-Created on 2025/11/04
+Created on 2025-11-04T00:00:00
 @author  : William_Trouvaille
-@function: CIFAR-10 分类网络定义
-@description: 提供针对 CIFAR-10 数据集优化的卷积神经网络模型
+@function: 简单的分类网络模型
 """
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from loguru import logger
 
 
 # ========================================================================
-# 1. ResNet 基础模块
+# 1. 基础模块
 # ========================================================================
 
 class BasicBlock(nn.Module):
     """
-    ResNet 基础残差块。
+    ResNet 风格的基础残差块。
 
-    包含两个 3x3 卷积层，使用批归一化和 ReLU 激活函数。
-    使用跳跃连接（shortcut）来缓解深层网络的梯度消失问题。
+    结构:
+        x -> Conv -> BN -> ReLU -> Conv -> BN -> (+x) -> ReLU
     """
-    expansion = 1  # 输出通道数相对于输入通道数的扩展倍数
 
     def __init__(self, in_channels: int, out_channels: int, stride: int = 1):
         """
-        初始化残差块。
+        初始化基础残差块。
 
         参数:
             in_channels (int): 输入通道数
             out_channels (int): 输出通道数
-            stride (int): 步长（用于下采样，默认为 1）
+            stride (int): 第一个卷积的步长（用于降采样）
         """
         super().__init__()
 
-        # --- 主路径：两个 3x3 卷积 ---
+        # --- 1.1 主路径（两层 3x3 卷积）---
         self.conv1 = nn.Conv2d(
             in_channels, out_channels,
             kernel_size=3, stride=stride, padding=1, bias=False
         )
         self.bn1 = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
 
         self.conv2 = nn.Conv2d(
             out_channels, out_channels,
@@ -50,15 +48,12 @@ class BasicBlock(nn.Module):
         )
         self.bn2 = nn.BatchNorm2d(out_channels)
 
-        # --- 跳跃连接（shortcut）---
-        # 当输入输出维度不匹配时，使用 1x1 卷积进行维度变换
+        # --- 1.2 捷径路径（shortcut）---
+        # 如果维度不匹配，使用 1x1 卷积进行调整
         self.shortcut = nn.Sequential()
         if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(
-                    in_channels, out_channels,
-                    kernel_size=1, stride=stride, bias=False
-                ),
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
                 nn.BatchNorm2d(out_channels)
             )
 
@@ -67,240 +62,175 @@ class BasicBlock(nn.Module):
         前向传播。
 
         参数:
-            x (Tensor): 输入张量，形状 [batch, in_channels, height, width]
+            x (Tensor): 输入张量，形状 [batch, in_channels, H, W]
 
         返回:
-            Tensor: 输出张量，形状 [batch, out_channels, height//stride, width//stride]
+            Tensor: 输出张量，形状 [batch, out_channels, H', W']
         """
-        # --- 主路径 ---
-        identity = x
+        # 主路径
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
 
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-
-        # --- 跳跃连接 ---
-        out += self.shortcut(identity)
-        out = self.relu(out)
+        # 残差连接
+        out += self.shortcut(x)
+        out = F.relu(out)
 
         return out
 
 
 # ========================================================================
-# 2. CIFAR-10 分类网络
+# 2. 主分类网络
 # ========================================================================
 
-class CIFAR10Net(nn.Module):
+class SimpleCNN(nn.Module):
     """
-    针对 CIFAR-10 数据集优化的 ResNet 风格网络。
+    简单的卷积神经网络，适用于 CIFAR10 等小图像分类任务。
 
     网络结构:
-        - 初始卷积层：64 通道
-        - 3 个残差块组：[64, 128, 256]，每组包含 num_blocks 个残差块
+        - 初始卷积层
+        - 多个 BasicBlock 残差块
         - 全局平均池化
-        - 全连接层：输出 10 个类别
-
-    特性:
-        - 使用残差连接提升训练稳定性
-        - 针对 32x32 的 CIFAR-10 图像优化
-        - 支持 Dropout 正则化
+        - 全连接分类层
     """
 
-    def __init__(self, num_classes: int = 10, num_blocks: int = 2, dropout_rate: float = 0.3):
+    def __init__(
+            self,
+            num_classes: int = 10,
+            num_blocks: int = 3,
+            dropout_rate: float = 0.3
+    ):
         """
         初始化网络。
 
         参数:
-            num_classes (int): 分类类别数（CIFAR-10 为 10）
-            num_blocks (int): 每个残差块组的块数（默认为 2）
-            dropout_rate (float): Dropout 概率（默认为 0.3）
+            num_classes (int): 分类类别数
+            num_blocks (int): 每个阶段的残差块数量
+            dropout_rate (float): Dropout 比率
         """
         super().__init__()
 
-        self.in_channels = 64  # 当前通道数（用于构建残差块）
+        logger.info(f"正在构建 SimpleCNN: num_classes={num_classes}, "
+                    f"num_blocks={num_blocks}, dropout_rate={dropout_rate}")
 
-        # --- 1. 初始卷积层 ---
-        # 将 3 通道 RGB 图像映射到 64 通道特征图
+        # --- 2.1 初始卷积层 ---
+        # CIFAR10: 32x32x3 -> 32x32x64
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
 
-        # --- 2. 残差块组 ---
-        # 逐步增加通道数，提取多尺度特征
-        self.layer1 = self._make_layer(64, num_blocks, stride=1)    # 输出: 64 通道
-        self.layer2 = self._make_layer(128, num_blocks, stride=2)   # 输出: 128 通道，下采样
-        self.layer3 = self._make_layer(256, num_blocks, stride=2)   # 输出: 256 通道，下采样
+        # --- 2.2 残差块层 ---
+        # 第一组: 64 -> 64 (32x32)
+        self.layer1 = self._make_layer(64, 64, num_blocks, stride=1)
 
-        # --- 3. 全局平均池化 ---
-        # 将特征图 [batch, 256, H, W] 池化为 [batch, 256]
+        # 第二组: 64 -> 128 (16x16)
+        self.layer2 = self._make_layer(64, 128, num_blocks, stride=2)
+
+        # 第三组: 128 -> 256 (8x8)
+        self.layer3 = self._make_layer(128, 256, num_blocks, stride=2)
+
+        # --- 2.3 分类头 ---
+        # 使用全局平均池化替代全连接层，减少参数量
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-
-        # --- 4. 分类头 ---
-        self.dropout = nn.Dropout(p=dropout_rate)
+        self.dropout = nn.Dropout(dropout_rate)
         self.fc = nn.Linear(256, num_classes)
 
-        # --- 5. 权重初始化 ---
+        # --- 2.4 初始化权重 ---
         self._initialize_weights()
 
-        logger.info(f"CIFAR10Net 已初始化: 类别数={num_classes}, 残差块数={num_blocks}, Dropout={dropout_rate}")
+        logger.success("SimpleCNN 构建完成")
 
-    def _make_layer(self, out_channels: int, num_blocks: int, stride: int) -> nn.Sequential:
+    def _make_layer(
+            self,
+            in_channels: int,
+            out_channels: int,
+            num_blocks: int,
+            stride: int
+    ) -> nn.Sequential:
         """
-        构建一个残差块组。
+        构建包含多个 BasicBlock 的层。
 
         参数:
+            in_channels (int): 输入通道数
             out_channels (int): 输出通道数
-            num_blocks (int): 残差块数量
-            stride (int): 第一个残差块的步长（用于下采样）
+            num_blocks (int): BasicBlock 数量
+            stride (int): 第一个块的步长（用于降采样）
 
         返回:
-            nn.Sequential: 包含多个残差块的序列模块
+            nn.Sequential: 残差块序列
         """
         layers = []
 
-        # --- 第一个残差块（可能包含下采样）---
-        layers.append(BasicBlock(self.in_channels, out_channels, stride))
-        self.in_channels = out_channels
+        # 第一个块可能改变通道数和空间尺寸
+        layers.append(BasicBlock(in_channels, out_channels, stride))
 
-        # --- 后续残差块（不改变空间维度）---
+        # 后续块保持通道数和空间尺寸不变
         for _ in range(1, num_blocks):
-            layers.append(BasicBlock(self.in_channels, out_channels, stride=1))
+            layers.append(BasicBlock(out_channels, out_channels, stride=1))
 
         return nn.Sequential(*layers)
 
     def _initialize_weights(self):
         """
-        初始化网络权重。
-
-        使用 Kaiming 初始化（He 初始化）来缓解梯度消失/爆炸问题。
+        初始化网络权重（使用 Kaiming 初始化）。
         """
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                # 对卷积层使用 Kaiming Normal 初始化
+                # Kaiming 初始化（适用于 ReLU）
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, nn.BatchNorm2d):
-                # 批归一化层权重初始化为 1，偏置初始化为 0
+                # BN 层的权重初始化为 1，偏置初始化为 0
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.Linear):
-                # 全连接层权重使用正态分布初始化，偏置初始化为 0
+                # 全连接层使用正态分布初始化
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
-
-        logger.debug("网络权重已初始化（Kaiming Normal）")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         前向传播。
 
         参数:
-            x (Tensor): 输入图像，形状 [batch, 3, 32, 32]
+            x (Tensor): 输入图像张量，形状 [batch, 3, H, W]
 
         返回:
-            Tensor: 类别 logits，形状 [batch, num_classes]
+            Tensor: 分类 logits，形状 [batch, num_classes]
         """
-        # --- 1. 初始卷积 ---
-        # [batch, 3, 32, 32] -> [batch, 64, 32, 32]
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
+        # 初始卷积
+        out = F.relu(self.bn1(self.conv1(x)))  # [batch, 64, H, W]
 
-        # --- 2. 残差块组 ---
-        # [batch, 64, 32, 32] -> [batch, 64, 32, 32]
-        x = self.layer1(x)
+        # 残差块
+        out = self.layer1(out)  # [batch, 64, H, W]
+        out = self.layer2(out)  # [batch, 128, H/2, W/2]
+        out = self.layer3(out)  # [batch, 256, H/4, W/4]
 
-        # [batch, 64, 32, 32] -> [batch, 128, 16, 16]（下采样）
-        x = self.layer2(x)
+        # 全局平均池化
+        out = self.avgpool(out)  # [batch, 256, 1, 1]
+        out = torch.flatten(out, 1)  # [batch, 256]
 
-        # [batch, 128, 16, 16] -> [batch, 256, 8, 8]（下采样）
-        x = self.layer3(x)
+        # 分类
+        out = self.dropout(out)
+        out = self.fc(out)  # [batch, num_classes]
 
-        # --- 3. 全局平均池化 ---
-        # [batch, 256, 8, 8] -> [batch, 256, 1, 1]
-        x = self.avgpool(x)
-
-        # [batch, 256, 1, 1] -> [batch, 256]
-        x = torch.flatten(x, 1)
-
-        # --- 4. 分类头 ---
-        x = self.dropout(x)
-        x = self.fc(x)  # [batch, 256] -> [batch, num_classes]
-
-        return x
+        return out
 
 
 # ========================================================================
-# 3. 模型工厂函数
+# 3. 工厂函数
 # ========================================================================
 
-def create_cifar10_model(
-        num_classes: int = 10,
-        num_blocks: int = 2,
-        dropout_rate: float = 0.3,
-        device: str = 'cuda'
-) -> nn.Module:
+def create_model(config) -> SimpleCNN:
     """
-    创建并初始化 CIFAR-10 分类模型。
+    从配置创建模型的工厂函数。
 
     参数:
-        num_classes (int): 分类类别数
-        num_blocks (int): 每组残差块数量
-        dropout_rate (float): Dropout 概率
-        device (str): 计算设备（'cuda' 或 'cpu'）
+        config: 配置对象，需包含 model 子配置
 
     返回:
-        nn.Module: 初始化并移到指定设备的模型
+        SimpleCNN: 实例化的模型
     """
-    logger.info("=" * 60)
-    logger.info("正在创建 CIFAR-10 分类模型...".center(60))
-    logger.info("=" * 60)
-
-    # --- 创建模型 ---
-    model = CIFAR10Net(
-        num_classes=num_classes,
-        num_blocks=num_blocks,
-        dropout_rate=dropout_rate
+    model = SimpleCNN(
+        num_classes=config.model.num_classes,
+        num_blocks=config.model.num_blocks,
+        dropout_rate=config.model.dropout_rate
     )
-
-    # --- 移到设备 ---
-    model = model.to(device)
-    logger.info(f"模型已移动到设备: {device}")
-
-    # --- 统计参数量 ---
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-    logger.info(f"总参数量: {total_params:,}")
-    logger.info(f"可训练参数量: {trainable_params:,}")
-
-    logger.success("模型创建完成！")
-    logger.info("=" * 60)
-
     return model
-
-
-if __name__ == '__main__':
-    """测试模型结构"""
-    # 设置日志
-    from utils import setup_logging
-    setup_logging(log_file='logs/network_test.log')
-
-    # 创建测试输入
-    batch_size = 4
-    test_input = torch.randn(batch_size, 3, 32, 32)
-
-    logger.info(f"测试输入形状: {test_input.shape}")
-
-    # 创建模型
-    model = create_cifar10_model(device='cpu')
-
-    # 前向传播
-    model.eval()
-    with torch.no_grad():
-        output = model(test_input)
-
-    logger.info(f"输出形状: {output.shape}")
-    logger.success("网络测试通过！")

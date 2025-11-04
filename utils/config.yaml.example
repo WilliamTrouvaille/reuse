@@ -14,6 +14,8 @@ experiment:
     # 依赖: utils.helpers.set_random_seed (enable_cudnn_benchmark)
     enable_cudnn_benchmark: true
 
+    device: cuda
+
 # ============================================================
 # 数据集配置 (Dataset)
 # ============================================================
@@ -22,7 +24,7 @@ dataset:
     # 必须与 utils.data._DATASET_REGISTRY 中的键匹配
     name: "CIFAR10"
     # 数据集下载和存储的根路径
-    data_path: "./data"
+    dataset_path: "./data"
 
 # ============================================================
 # 数据加载器配置 (DataLoader)
@@ -32,11 +34,15 @@ dataset:
 dataloader:
     # (性能) DataLoader 使用的子进程数
     # (在 Windows 上建议为 0，Linux 上 > 0)
-    num_workers: 0
+    num_workers: 8
+
     # (性能) 允许数据加载器将张量复制到 CUDA 固定内存中
     pin_memory: true
+
     # (性能) 保持 worker 进程在 epoch 之间存活
-    # persistent_workers: true # (仅在 num_workers > 0 时)
+    persistent_workers: true # (仅在 num_workers > 0 时)
+
+    batch_size: 32
 
 # ============================================================
 # 模型配置 (Model)
@@ -55,7 +61,7 @@ training:
     # --- 1. 核心循环参数 (在 main.py 中使用) ---
 
     # 总训练轮数
-    epochs: 100
+    epochs: 2
     # 批次大小
     batch_size: 128
 
@@ -65,9 +71,9 @@ training:
     lr: 0.01
     # 使用的优化器类型 (例如: SGD, Adam)
     optimizer: "SGD"
-    # (可以添加其他优化器参数)
-    # weight_decay: 0.0001
-    # momentum: 0.9
+    
+    weight_decay: 0.0001
+    momentum: 0.9
 
     # --- 3. 性能与优化 (由 Trainer 读取) ---
 
@@ -111,11 +117,15 @@ training:
 
     # 早停耐心：在停止前等待多少个 epoch 没有改善
     # 依赖: utils.early_stopping.EarlyStopper (patience)
-    patience: 10
+    patience: 5
 
     # (可选) 被视为"改善"的最小变化量
     # 依赖: utils.early_stopping.EarlyStopper (min_delta)
     min_delta: 0.0
+
+    # 更新 `set_postfix` (I/O) 的最小间隔（秒）
+    # 依赖: utils.progress.Progress
+    progress_update_interval: 1.5
 
 # ============================================================
 # 检查点配置 (Checkpoint)

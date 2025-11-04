@@ -68,8 +68,8 @@ def setup_logging(
         return
 
     # 5. 定义日志文件路径
-    # 使用 {time:YYYYMMDD} 确保每天一个日志文件
-    log_file_path = os.path.join(log_dir, "log_{time:YYYYMMDD}.log")
+    # 使用 {time:YYYYMMDD_HHmmss} 确保每次运行一个独立的日志文件
+    log_file_path = os.path.join(log_dir, "log_{time:YYYYMMDD_HHmmss}.log")
 
     # 6. 添加文件 Sink
     logger.add(

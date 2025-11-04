@@ -97,16 +97,20 @@ def _deep_merge_dict(base_dict: dict, override_dict: dict) -> dict:
     return merged
 
 
-def load_config_from_yaml(config_path: str) -> dict:
+def load_config_from_yaml(config_path: str | None) -> dict:
     """
     加载 YAML 配置文件并返回一个字典。
 
     参数:
-        config_path (str): YAML 配置文件的路径。
+        config_path (str | None): YAML 配置文件的路径。如果为 None，返回空字典。
 
     返回:
         dict: 包含配置参数的字典。如果文件不存在或解析失败，则返回空字典。
     """
+    if config_path is None:
+        logger.debug("未提供配置文件路径，跳过 YAML 加载。")
+        return {}
+
     resolved_path = os.path.abspath(config_path)
 
     if not os.path.exists(resolved_path):
@@ -249,9 +253,9 @@ def print_config(config: (dict | ConfigNamespace), title: str = "当前配置信
 
 
 def setup_config(
-        default_config: dict,
         yaml_config_path: str,
-        cmd_args: dict
+        cmd_args: dict = None,
+        default_config: dict = None
 ) -> ConfigNamespace:
     """
     优雅的配置编排函数，处理三阶段覆盖。
@@ -259,28 +263,34 @@ def setup_config(
     覆盖优先级: 命令行参数 > YAML 文件 > 默认配置
 
     参数:
-        default_config (dict): 在代码中定义的默认配置字典。
         yaml_config_path (str): 用户 YAML 配置文件的路径。
-        cmd_args (dict): 从 argparse.parse_args() 得到的参数字典。
+        cmd_args (dict, optional): 从 argparse.parse_args() 得到的参数字典。
+        default_config (dict, optional): 在代码中定义的默认配置字典。
 
     返回:
         ConfigNamespace: 包含最终合并配置的命名空间对象。
     """
     logger.info("开始配置加载程序...")
 
-    # 1. 加载 YAML 配置
+    # --- 1. 加载 YAML 配置 ---
     yaml_config = load_config_from_yaml(yaml_config_path)
 
-    # 2. 合并：默认 < YAML
-    config_step_1 = _deep_merge_dict(default_config, yaml_config)
+    # --- 2. 合并：默认 < YAML ---
+    if default_config:
+        config_step_1 = _deep_merge_dict(default_config, yaml_config)
+    else:
+        config_step_1 = yaml_config
 
-    # 3. 合并：(默认 + YAML) < 命令行参数
-    final_config_dict = update_config_from_args(config_step_1, cmd_args)
+    # --- 3. 合并：(默认 + YAML) < 命令行参数 ---
+    if cmd_args:
+        final_config_dict = update_config_from_args(config_step_1, cmd_args)
+    else:
+        final_config_dict = config_step_1
 
-    # 4. 打印最终配置
+    # --- 4. 打印最终配置 ---
     print_config(final_config_dict, "最终合并配置")
 
-    # 5. 转换为 Namespace
+    # --- 5. 转换为 Namespace ---
     final_config_namespace = ConfigNamespace(final_config_dict)
 
     logger.success("配置加载完成并转换为 ConfigNamespace。")
