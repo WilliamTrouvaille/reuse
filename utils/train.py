@@ -38,35 +38,6 @@ class Trainer:
         - 依赖注入: 通过 __init__ 接收所有已实例化的工具，最大化灵活性
         - 模板方法: 训练逻辑可通过重写 _train_step 等方法来定制
         - 性能优先: 默认集成高性能工具（MetricTracker, Progress, AMP）
-
-    使用场景:
-        1. (推荐) 依赖注入模式 - 完全控制:
-            ckpt_mgr = CheckpointManager(...)
-            early_stop = EarlyStopper(...)
-            trainer = Trainer(
-                model, optimizer, criterion, device,
-                checkpoint_manager=ckpt_mgr,
-                early_stopper=early_stop,
-                use_amp=True
-            )
-            trainer.fit(train_loader, val_loader, epochs=100)
-
-        2. (可选) 配置驱动模式 - 简化代码:
-            trainer = Trainer.from_config(
-                model, optimizer, criterion, device, config
-            )
-            trainer.fit(train_loader, val_loader)
-
-    示例:
-        # 标准分类任务（零代码定制）
-        trainer = Trainer(model, optimizer, criterion, device, use_amp=True)
-        history = trainer.fit(train_loader, val_loader, epochs=100)
-
-        # 多任务学习（继承并重写）
-        class MultiTaskTrainer(Trainer):
-            def _train_step(self, batch):
-                # 自定义训练逻辑
-                ...
     """
 
     # ========================================================================
