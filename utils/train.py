@@ -21,6 +21,7 @@ from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
 # 导入我们已有的工具
+from .callbacks.base import Callback
 from .checkpoint_manager import CheckpointManager
 from .early_stopping import EarlyStopper
 from .helpers import clear_memory, format_time, log_memory_usage
@@ -57,6 +58,9 @@ class Trainer:
             notifier: Optional[NtfyNotifier] = None,
             scheduler: Optional[_LRScheduler] = None,
 
+            # (新增) Callbacks 系统
+            callbacks: Optional[list[Callback]] = None,
+
             # (性能优化) 配置选项
             use_amp: bool = False,
             grad_accum_steps: int = 1,
@@ -86,6 +90,7 @@ class Trainer:
             early_stopper (EarlyStopper, optional): 早停器
             notifier (NtfyNotifier, optional): Ntfy 通知器
             scheduler (_LRScheduler, optional): 学习率调度器
+            callbacks (list[Callback], optional): Callback 列表（新的推荐方式）
 
             use_amp (bool): 是否使用自动混合精度（默认: False）
             grad_accum_steps (int): 梯度累积步数（默认: 1）
@@ -152,16 +157,30 @@ class Trainer:
         self.metric_tracker = MetricTracker(self.device, compute_top5=self.compute_top5)
         self.lr_meter = AverageMeter()
 
-        # --- 7. 内部状态 ---
+        # --- 7. (新增) Callbacks 系统初始化 ---
+        self.callbacks = callbacks or []
+        logger.info(f"Callbacks 系统已初始化，共 {len(self.callbacks)} 个回调")
+
+        # --- 8. 内部状态 ---
         self.current_epoch = 0
         self.global_step = 0
         self.best_metric = -float('inf') if self.metric_mode == 'max' else float('inf')
         self.training_history = []
         self.start_epoch = 0
+        self._should_stop = False  # 新增：用于 callbacks 触发早停
 
-        # --- 8. 自动恢复检查点 ---
+        # --- 9. 自动恢复检查点 ---
         if self.checkpoint_manager:
             self._load_checkpoint()
+
+        # --- 10. 调用所有 callbacks 的 setup 钩子 ---
+        for callback in self.callbacks:
+            try:
+                callback.setup(self)
+                logger.debug(f"Callback {callback.__class__.__name__} setup 完成")
+            except Exception as e:
+                logger.error(f"Callback {callback.__class__.__name__} setup 失败: {e}")
+                raise
 
         logger.success(f"Trainer 初始化完成（设备: {self.device}）")
 
@@ -302,6 +321,9 @@ class Trainer:
                 f"指标: {self.metric_to_track} ({self.metric_mode})"
             )
 
+        # (新增) 调用 on_train_start 钩子
+        self._call_callbacks('on_train_start')
+
         try:
             # --- 主训练循环 ---
             self._main_training_loop(train_loader, val_loader, epochs)
@@ -320,6 +342,10 @@ class Trainer:
             logger.error(f"训练过程中发生未捕获的异常: {type(e).__name__}")
             error_details = traceback.format_exc()
             logger.exception(error_details)
+
+            # (新增) 调用 on_exception 钩子
+            self._call_callbacks('on_exception', e)
+
             if self.notifier:
                 self.notifier.notify_error(f"训练失败: {e}", error_details)
             raise  # 重新抛出异常，让 main.py 知道
@@ -330,6 +356,9 @@ class Trainer:
             logger.success(f"训练在 Epoch {epochs} 正常完成")
             logger.success(f"最佳指标 ({self.metric_to_track}): {self.best_metric:.4f}")
             logger.success("=" * 80)
+
+            # (新增) 调用 on_train_end 钩子
+            self._call_callbacks('on_train_end')
 
             if self.notifier:
                 self.notifier.notify_success(
@@ -342,6 +371,10 @@ class Trainer:
             # --- 最终清理 ---
             total_duration = time.monotonic() - total_start_time
             logger.info(f"总训练耗时: {format_time(total_duration)}")
+
+            # (新增) 调用 teardown 钩子
+            self._call_callbacks('teardown')
+
             self._cleanup()
 
         return {
@@ -365,19 +398,31 @@ class Trainer:
             self.current_epoch = epoch
             epoch_start_time = time.monotonic()
 
+            # (新增) 调用 on_train_epoch_start 钩子
+            self._call_callbacks('on_train_epoch_start')
+
             # --- 1. 训练阶段 ---
             train_metrics = self._train_epoch(train_loader, epoch)
 
             # 调用钩子（供子类扩展）
             self._on_train_epoch_end(epoch, train_metrics)
 
+            # (新增) 调用 on_train_epoch_end 钩子
+            self._call_callbacks('on_train_epoch_end')
+
             # --- 2. 验证阶段 ---
             val_metrics = {}
             if val_loader and (epoch % self.val_interval == 0 or epoch == total_epochs - 1):
+                # (新增) 调用 on_validation_epoch_start 钩子
+                self._call_callbacks('on_validation_epoch_start')
+
                 val_metrics = self._eval_epoch(val_loader, epoch)
 
                 # 调用钩子（供子类扩展）
                 self._on_eval_epoch_end(epoch, val_metrics)
+
+                # (新增) 调用 on_validation_epoch_end 钩子
+                self._call_callbacks('on_validation_epoch_end')
 
             # --- 3. 学习率调度 ---
             if self.scheduler:
@@ -389,6 +434,12 @@ class Trainer:
 
             # --- 5. 检查点保存与早停检查 ---
             should_stop = self._save_and_check_stop(epoch, val_metrics)
+
+            # (新增) 检查 callbacks 是否触发早停
+            if self._should_stop:
+                logger.warning("Callback 触发早停，训练终止")
+                should_stop = True
+
             if should_stop:
                 logger.warning(f"早停触发，训练终止于 Epoch {epoch + 1}")
                 break
@@ -914,6 +965,47 @@ class Trainer:
             **{f'val_{k}': v for k, v in val_metrics.items()}
         }
         self.training_history.append(epoch_history)
+
+    # ========================================================================
+    # 5. Callbacks 辅助方法
+    # ========================================================================
+
+    def _call_callbacks(self, hook_name: str, *args, **kwargs):
+        """批量调用所有回调的指定钩子。
+
+        这是 Callback 系统的核心调度方法，负责按顺序调用所有注册的
+        callbacks 的特定钩子方法。
+
+        参数:
+            hook_name (str): 钩子方法名称（如 'on_train_start'）
+            *args: 传递给钩子的位置参数
+            **kwargs: 传递给钩子的关键字参数
+
+        设计说明:
+            - 使用 getattr 动态获取钩子方法，避免硬编码
+            - 忽略未实现的钩子（返回 None），保证向后兼容
+            - 捕获单个 callback 的异常，不影响其他 callbacks
+            - 按照 callbacks 列表顺序依次执行
+
+        示例:
+            self._call_callbacks('on_train_start')  # 无参数
+            self._call_callbacks('on_train_batch_end', outputs, batch, batch_idx)  # 有参数
+        """
+        for callback in self.callbacks:
+            hook = getattr(callback, hook_name, None)
+            if hook is None:
+                continue  # 该回调未实现此钩子，跳过
+
+            try:
+                hook(self, *args, **kwargs)
+            except Exception as e:
+                logger.error(
+                    f"Callback {callback.__class__.__name__}.{hook_name}() "
+                    f"执行失败: {e}"
+                )
+                # 决策：是否继续执行其他 callbacks？
+                # 当前策略：记录错误但继续（避免一个 callback 阻塞整个流程）
+                # 如果需要严格模式，可以 raise 重新抛出异常
 
     # ========================================================================
     # 6. 实用方法 - 供外部调用
