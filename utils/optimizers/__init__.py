@@ -13,6 +13,7 @@ Created on 2025-11-06 14:50:45
 # --- 1.1 导入各类优化器 ---
 from .adamp import AdamP
 from .lion import Lion
+from .madgrad import MadGrad
 
 # ========================================================================
 # 2. 模块导出
@@ -22,4 +23,5 @@ from .lion import Lion
 __all__: list[str] = [
     "AdamP",  # AdamP: Adam 的投影变体，抑制权重范数膨胀
     "Lion",  # Lion: 符号动量优化器，内存效率更高
+    "MadGrad",  # MadGrad: 动量化自适应双平均优化器，兼顾稳健与收敛速度
 ]
