@@ -6,15 +6,24 @@ dist/
 wheels/
 *.egg-info
 
-logs/**
+
 .idea
 .vecode
+
 *.pth
+
 checkpoints/
-data
-CLAUDE.md
+data/
+docs/
+logs/
+
+*.md
+!README.md
+
 .claude
-docs
+.codex
+
+
 
 # Virtual environments
 .venv

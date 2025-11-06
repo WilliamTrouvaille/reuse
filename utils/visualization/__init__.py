@@ -11,7 +11,7 @@ from .collector import MetricsCollector
 from .visualizer import MetricsVisualizer
 from .reporter import TrainingReporter
 
-__all__ = [
+__all__: list[str] =[
     'MetricsCollector',
     'MetricsVisualizer',
     'TrainingReporter',

@@ -54,7 +54,7 @@ __version__ = "0.1.0"
 __author__ = "William_Trouvaille"
 
 # 导出主要接口
-__all__ = [
+__all__: list[str] = [
     # logger_config.py
     'setup_logging',
 
