@@ -4,14 +4,26 @@
 Created on 2025/11/1 21:45
 @author  : William_Trouvaille
 @function: 通用辅助函数
+@detail:
+    本文件部分功能源自 PyTorch Lightning 项目
+    原始许可证: Apache License 2.0
+    原始版权: Copyright The Lightning AI team.
+    原始仓库: https://github.com/Lightning-AI/pytorch-lightning
+    源文件:
+        - lightning/pytorch/utilities/memory.py (内存管理功能)
+        - lightning/fabric/utilities/seed.py (随机种子隔离功能)
 """
 
+import gc
 import json
 import math
 import os
 import random
 import time
-from typing import Dict, Any, Optional, Union
+from contextlib import contextmanager
+from random import getstate as python_get_rng_state
+from random import setstate as python_set_rng_state
+from typing import Dict, Any, Optional, Union, Generator
 
 import numpy as np
 import torch
@@ -54,50 +66,87 @@ def format_time(seconds: float) -> str:
         return f"{hours}h {remaining_minutes}m {remaining_seconds:.1f}s"
 
 
-def set_random_seed(seed: int = 42, enable_cudnn_benchmark: bool = True) -> None:
+# ========================================================================
+# 2. 随机种子管理（源自 PyTorch Lightning）
+# ========================================================================
+
+def _collect_rng_states(include_cuda: bool = True) -> Dict[str, Any]:
     """
-    设置所有相关库的随机种子以确保实验的可复现性。
+    (私有) 收集 torch、torch.cuda、numpy 和 Python 的全局随机状态。
 
     参数:
-        seed (int): 随机种子值
-        enable_cudnn_benchmark (bool): 是否启用 cuDNN 自动调优。
-            - False (默认): 禁用 benchmark，保证完全可复现
-            - True: 启用 benchmark，在固定输入尺寸时可提升 20-30% 性能，但会牺牲可复现性
+        include_cuda (bool): 是否收集 CUDA 随机状态
+
+    返回:
+        dict: 包含各库随机状态的字典
     """
-    logger.info(f"正在设置全局随机种子: {seed}")
+    states = {
+        "torch": torch.get_rng_state(),
+        "python": python_get_rng_state(),
+        "numpy": np.random.get_state(),
+    }
+    if include_cuda and torch.cuda.is_available():
+        states["torch.cuda"] = torch.cuda.get_rng_state_all()
+    return states
 
-    # 设置 Python 内置随机数生成器种子
-    random.seed(seed)
 
-    # 设置 NumPy 随机数生成器种子
-    np.random.seed(seed)
+def _set_rng_states(rng_state_dict: Dict[str, Any]) -> None:
+    """
+    (私有) 设置 torch、torch.cuda、numpy 和 Python 的全局随机状态。
 
-    # 设置 PyTorch 随机数生成器种子 (CPU)
-    torch.manual_seed(seed)
+    参数:
+        rng_state_dict (dict): 包含各库随机状态的字典
+    """
+    torch.set_rng_state(rng_state_dict["torch"])
 
-    # 如果使用 CUDA
-    if torch.cuda.is_available():
-        logger.debug("设置 CUDA 随机种子...")
-        # 设置 PyTorch CUDA 随机数生成器种子 (当前 GPU)
-        torch.cuda.manual_seed(seed)
-        # 设置 PyTorch CUDA 随机数生成器种子 (所有 GPU)
-        torch.cuda.manual_seed_all(seed)
+    # 恢复 CUDA 随机状态（如果存在）
+    if "torch.cuda" in rng_state_dict and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(rng_state_dict["torch.cuda"])
 
-        # (重要) 确保 cuDNN 使用确定性算法
-        torch.backends.cudnn.deterministic = True
+    # 恢复 NumPy 随机状态
+    if "numpy" in rng_state_dict:
+        np.random.set_state(rng_state_dict["numpy"])
 
-        # cuDNN benchmark 配置（可选性能优化）
-        torch.backends.cudnn.benchmark = enable_cudnn_benchmark
+    # 恢复 Python 随机状态
+    version, state, gauss = rng_state_dict["python"]
+    python_set_rng_state((version, tuple(state), gauss))
 
-        if enable_cudnn_benchmark:
-            logger.warning(
-                "cuDNN benchmark 已启用，将牺牲可复现性以换取性能提升。"
-                "如需完全可复现，请在配置中设置 enable_cudnn_benchmark: false"
-            )
-        else:
-            logger.debug("cuDNN benchmark 已禁用（保证可复现性）。")
 
-    logger.success(f"全局随机种子 {seed} 设置完毕。")
+@contextmanager
+def isolate_rng(include_cuda: bool = True) -> Generator[None, None, None]:
+    """
+    上下文管理器：在退出时将全局随机状态重置为进入前的状态。
+
+    支持隔离 PyTorch、NumPy 和 Python 内置随机数生成器的状态。
+    这对于需要固定随机性的代码块（如数据增强测试）非常有用。
+
+    参数:
+        include_cuda (bool): 是否控制 `torch.cuda` 随机数生成器。
+                            在 fork 进程中禁止 CUDA 重新初始化时，应设置为 False。
+
+    示例:
+        >>> import torch
+        >>> torch.manual_seed(1)  # doctest: +ELLIPSIS
+        <torch._C.Generator object at ...>
+        >>> with isolate_rng():
+        ...     [torch.rand(1) for _ in range(3)]
+        [tensor([0.7576]), tensor([0.2793]), tensor([0.4031])]
+        >>> torch.rand(1)  # 全局状态未受影响
+        tensor([0.7576])
+
+    注意:
+        - 这个上下文管理器会捕获进入时的随机状态，并在退出时恢复
+        - 在上下文内部的任何随机操作都不会影响外部的随机状态
+        - 适用于需要可复现的测试或特定随机行为的场景
+    """
+    # 保存当前随机状态
+    states = _collect_rng_states(include_cuda)
+
+    try:
+        yield
+    finally:
+        # 恢复随机状态
+        _set_rng_states(states)
 
 
 def get_device(requested_device: str = 'auto') -> torch.device:
@@ -167,6 +216,171 @@ def clear_memory() -> None:
         logger.info("已清理 GPU 缓存 (torch.cuda.empty_cache())。")
 
 
+# ========================================================================
+# 4. 内存管理增强（源自 PyTorch Lightning）
+# ========================================================================
+
+def recursive_detach(in_dict: Any, to_cpu: bool = False) -> Any:
+    """
+    递归分离字典中的所有张量。
+
+    可以递归处理嵌套字典中的 Tensor 实例。字典中的其他类型不受影响。
+
+    参数:
+        in_dict (Any): 包含张量的字典或任意数据结构
+        to_cpu (bool): 是否将张量移动到 CPU（默认: False）
+
+    返回:
+        Any: 分离后的数据结构
+
+    示例:
+        >>> data = {
+        ...     'loss': torch.tensor(1.5, requires_grad=True),
+        ...     'metrics': {'acc': torch.tensor(0.95, requires_grad=True)}
+        ... }
+        >>> detached = recursive_detach(data, to_cpu=True)
+        >>> print(detached['loss'].requires_grad)  # False
+    """
+    from torch import Tensor
+
+    def _detach_and_move(t: Tensor, to_cpu: bool) -> Tensor:
+        """内部函数：分离并可选地移动张量到 CPU"""
+        t = t.detach()
+        if to_cpu:
+            t = t.cpu()
+        return t
+
+    # 递归处理字典
+    if isinstance(in_dict, dict):
+        return {k: recursive_detach(v, to_cpu) for k, v in in_dict.items()}
+
+    # 递归处理列表
+    if isinstance(in_dict, (list, tuple)):
+        result = [recursive_detach(item, to_cpu) for item in in_dict]
+        return type(in_dict)(result)  # 保持原始类型（list 或 tuple）
+
+    # 处理张量
+    if isinstance(in_dict, Tensor):
+        return _detach_and_move(in_dict, to_cpu)
+
+    # 其他类型直接返回
+    return in_dict
+
+
+def is_cuda_out_of_memory(exception: BaseException) -> bool:
+    """
+    检测是否为 CUDA 内存溢出（OOM）错误。
+
+    参数:
+        exception (BaseException): 捕获的异常
+
+    返回:
+        bool: True 表示是 CUDA OOM 错误
+
+    示例:
+        >>> try:
+        ...     # 尝试分配过大的张量
+        ...     x = torch.randn(10000, 10000, 10000, device='cuda')
+        ... except RuntimeError as e:
+        ...     if is_cuda_out_of_memory(e):
+        ...         print("CUDA 内存不足！")
+    """
+    return (
+        isinstance(exception, RuntimeError)
+        and len(exception.args) == 1
+        and "CUDA" in exception.args[0]
+        and "out of memory" in exception.args[0]
+    )
+
+
+def is_cudnn_snafu(exception: BaseException) -> bool:
+    """
+    检测是否为 cuDNN 特定错误。
+
+    这是一个已知的 PyTorch 问题：https://github.com/pytorch/pytorch/issues/4107
+
+    参数:
+        exception (BaseException): 捕获的异常
+
+    返回:
+        bool: True 表示是 cuDNN 错误
+    """
+    return (
+        isinstance(exception, RuntimeError)
+        and len(exception.args) == 1
+        and "cuDNN error: CUDNN_STATUS_NOT_SUPPORTED." in exception.args[0]
+    )
+
+
+def is_out_of_cpu_memory(exception: BaseException) -> bool:
+    """
+    检测是否为 CPU 内存溢出错误。
+
+    参数:
+        exception (BaseException): 捕获的异常
+
+    返回:
+        bool: True 表示是 CPU OOM 错误
+    """
+    return (
+        isinstance(exception, RuntimeError)
+        and len(exception.args) == 1
+        and "DefaultCPUAllocator: can't allocate memory" in exception.args[0]
+    )
+
+
+def is_oom_error(exception: BaseException) -> bool:
+    """
+    检测是否为任意类型的内存溢出（OOM）错误。
+
+    包括 CUDA OOM、cuDNN 错误和 CPU OOM。
+
+    参数:
+        exception (BaseException): 捕获的异常
+
+    返回:
+        bool: True 表示是 OOM 错误
+
+    示例:
+        >>> try:
+        ...     # 训练代码
+        ...     outputs = model(inputs)
+        ... except RuntimeError as e:
+        ...     if is_oom_error(e):
+        ...         logger.error("检测到 OOM 错误！")
+        ...         garbage_collection_cuda()
+    """
+    return is_cuda_out_of_memory(exception) or is_cudnn_snafu(exception) or is_out_of_cpu_memory(exception)
+
+
+def garbage_collection_cuda() -> None:
+    """
+    安全地执行 CUDA 垃圾回收。
+
+    这个函数会先进行 Python 垃圾回收，然后清空 CUDA 缓存。
+    如果清空缓存时出现 OOM 错误，会捕获并忽略该错误。
+
+    示例:
+        >>> # 在捕获 OOM 错误后使用
+        >>> try:
+        ...     model(large_batch)
+        ... except RuntimeError as e:
+        ...     if is_oom_error(e):
+        ...         garbage_collection_cuda()
+        ...         # 尝试使用更小的 batch size
+    """
+    gc.collect()
+    try:
+        # 这是最后可能导致 OOM 错误的操作，但实际上也可能会发生
+        torch.cuda.empty_cache()
+        logger.debug("CUDA 垃圾回收完成")
+    except RuntimeError as exception:
+        if not is_oom_error(exception):
+            # 只处理 OOM 错误，其他错误重新抛出
+            raise
+        logger.warning("在清空 CUDA 缓存时遇到 OOM 错误，已忽略")
+
+
 def get_memory_usage(device: Optional[Union[int, torch.device]] = None) -> Optional[Dict[str, str]]:
     """
     获取指定 CUDA 设备的内存使用情况。
@@ -206,18 +420,18 @@ def get_memory_usage(device: Optional[Union[int, torch.device]] = None) -> Optio
 
 def log_memory_usage(description: str = "当前内存使用"):
     """
-    (保留) 记录内存使用情况到日志。
+    记录内存使用情况到日志。
     """
     usage = get_memory_usage()
     if usage:
         logger.debug(f"{description}: {usage['allocated']} / {usage['total']} ({usage['percent_used']})")
 
 
-# --- 4. (保留) 张量与模型辅助函数 ---
+# --- 4. 张量与模型辅助函数 ---
 
 def validate_tensor(tensor: torch.Tensor, name: str = "tensor") -> bool:
     """
-    (保留) 验证张量是否有效（无 NaN 或 Inf）。
+    验证张量是否有效（无 NaN 或 Inf）。
 
     参数:
         tensor (Tensor): 要验证的张量
@@ -239,7 +453,7 @@ def validate_tensor(tensor: torch.Tensor, name: str = "tensor") -> bool:
 
 def count_parameters(model: torch.nn.Module, trainable_only: bool = False) -> int:
     """
-    (保留) 计算模型参数数量。
+    计算模型参数数量。
 
     参数:
         model (nn.Module): 模型
@@ -254,13 +468,10 @@ def count_parameters(model: torch.nn.Module, trainable_only: bool = False) -> in
         return sum(p.numel() for p in model.parameters())
 
 
-# --- 5. (保留) 格式化与 IO ---
+# --- 5. 格式化与 IO ---
 
 def format_size(size_bytes: int) -> str:
-    """
-    (保留并重构) 格式化字节大小为可读格式 (KB, MB, GB)。
-    (移除了对 NumPy 的依赖)
-    """
+    """格式化字节大小为可读格式 (KB, MB, GB)"""
     if size_bytes == 0:
         return "0B"
     size_names = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
@@ -272,10 +483,7 @@ def format_size(size_bytes: int) -> str:
 
 
 def save_dict_to_json(data: Dict[str, Any], file_path: str) -> None:
-    """
-    (保留并重构) 保存字典到 JSON 文件。
-    (移除了对 `ensure_dir` 的依赖)
-    """
+    """保存字典到 JSON 文件。"""
     try:
         # 确保目录存在
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -289,9 +497,7 @@ def save_dict_to_json(data: Dict[str, Any], file_path: str) -> None:
 
 
 def load_dict_from_json(file_path: str) -> Optional[Dict[str, Any]]:
-    """
-    (保留) 从 JSON 文件加载字典。
-    """
+    """从 JSON 文件加载字典。"""
     if not os.path.exists(file_path):
         logger.error(f"JSON 文件未找到: {file_path}")
         return None

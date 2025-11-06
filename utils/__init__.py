@@ -24,12 +24,23 @@ from .decorators import (
     log_errors
 )
 from .early_stopping import EarlyStopper
+from .grads import (
+    grad_norm,
+    log_grad_norm,
+    check_grad_anomaly
+)
 from .helpers import (
     get_time,
     format_time,
-    set_random_seed,
+    isolate_rng,
     get_device,
     clear_memory,
+    recursive_detach,
+    is_cuda_out_of_memory,
+    is_cudnn_snafu,
+    is_out_of_cpu_memory,
+    is_oom_error,
+    garbage_collection_cuda,
     get_memory_usage,
     log_memory_usage,
     validate_tensor,
@@ -47,6 +58,14 @@ from .visualization import (
     MetricsCollector,
     MetricsVisualizer,
     TrainingReporter
+)
+from .callbacks import (
+    Timer,
+    Interval,
+    Stage,
+    LearningRateMonitor,
+    BatchSizeFinder,
+    find_optimal_batch_size
 )
 
 # 版本信息
@@ -77,12 +96,23 @@ __all__: list[str] = [
     # progress.py
     'Progress',
 
+    # grads.py (新增)
+    'grad_norm',
+    'log_grad_norm',
+    'check_grad_anomaly',
+
     # helpers.py
     'get_time',
     'format_time',
-    'set_random_seed',
+    'isolate_rng',
     'get_device',
     'clear_memory',
+    'recursive_detach',
+    'is_cuda_out_of_memory',
+    'is_cudnn_snafu',
+    'is_out_of_cpu_memory',
+    'is_oom_error',
+    'garbage_collection_cuda',
     'get_memory_usage',
     'log_memory_usage',
     'validate_tensor',
@@ -112,4 +142,12 @@ __all__: list[str] = [
     'MetricsCollector',
     'MetricsVisualizer',
     'TrainingReporter',
+
+    # callbacks/ (新增)
+    'Timer',
+    'Interval',
+    'Stage',
+    'LearningRateMonitor',
+    'BatchSizeFinder',
+    'find_optimal_batch_size',
 ]

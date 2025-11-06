@@ -56,7 +56,7 @@ model:
     
     # Dropout 比率，通常在 0.2 到 0.5 之间
     # 过拟合调高此值，欠拟合调低此值
-    dropout_rate: 0.15
+    dropout_rate: 0.35
     
     # 分类类别数
     # 由数据集决定的固定值，必须根据使用的数据集进行设置
@@ -74,16 +74,16 @@ training:
     # --- 1. 核心循环参数 (在 main.py 中使用) ---
 
     # 总训练轮数
-    epochs: 80
+    epochs: 100
 
     # --- 2. 优化器参数 (在 main.py 中使用) ---
 
     # 初始学习率
-    lr: 0.001
+    lr: 0.01
     # 使用的优化器类型 (例如: SGD, Adam)
-    optimizer: "SGD"
+    optimizer: "Adam"
     
-    weight_decay: 0.00005
+    weight_decay: 0.01
     momentum: 0.9
 
     # --- 3. 性能与优化 (由 Trainer 读取) ---
@@ -131,11 +131,11 @@ training:
 
     # 早停耐心：在停止前等待多少个 epoch 没有改善
     # 依赖: utils.early_stopping.EarlyStopper (patience)
-    patience: 12
+    patience: 8
 
     # (可选) 被视为"改善"的最小变化量
     # 依赖: utils.early_stopping.EarlyStopper (min_delta)
-    min_delta: 0.001
+    min_delta: 0.0005
 
     # 更新 `set_postfix` (I/O) 的最小间隔（秒）
     # 依赖: utils.progress.Progress
