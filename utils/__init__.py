@@ -67,6 +67,37 @@ from .callbacks import (
     BatchSizeFinder,
     find_optimal_batch_size
 )
+from .optimizers import AdamP, Lion, MadGrad
+from .augmentation import (
+    AugmentationPipeline,
+    BaseTransform,
+    CutOut,
+    CenterCrop,
+    ColorJitter,
+    GaussianBlur,
+    GaussianNoise,
+    RandomApply,
+    RandomBlur,
+    RandomBrightness,
+    RandomColorDistortion,
+    RandomContrast,
+    RandomCropAndResize,
+    RandomCropResizeFlip,
+    RandomErasing,
+    RandomHorizontalFlip,
+    RandomHue,
+    RandomRotation,
+    RandomSaturation,
+    SobelFilter,
+    ToGrayscale,
+    TorchSeedContext,
+    TRANSFORM_REGISTRY,
+    get_basic_augmentation,
+    get_simclr_augmentation,
+    get_strong_augmentation,
+    validate_probability,
+    validate_range,
+)
 
 # 版本信息
 __version__ = "0.1.0"
@@ -96,7 +127,7 @@ __all__: list[str] = [
     # progress.py
     'Progress',
 
-    # grads.py (新增)
+    # grads.py
     'grad_norm',
     'log_grad_norm',
     'check_grad_anomaly',
@@ -143,11 +174,47 @@ __all__: list[str] = [
     'MetricsVisualizer',
     'TrainingReporter',
 
-    # callbacks/ (新增)
+    # callbacks/
     'Timer',
     'Interval',
     'Stage',
     'LearningRateMonitor',
     'BatchSizeFinder',
     'find_optimal_batch_size',
+
+    # optimizers/
+    'AdamP',
+    'Lion',
+    'MadGrad',
+
+    # augmentation/
+    'AugmentationPipeline',
+    'BaseTransform',
+    'CutOut',
+    'CenterCrop',
+    'ColorJitter',
+    'GaussianBlur',
+    'GaussianNoise',
+    'RandomApply',
+    'RandomBlur',
+    'RandomBrightness',
+    'RandomColorDistortion',
+    'RandomContrast',
+    'RandomCropAndResize',
+    'RandomCropResizeFlip',
+    'RandomErasing',
+    'RandomHorizontalFlip',
+    'RandomHue',
+    'RandomRotation',
+    'RandomSaturation',
+    'SobelFilter',
+    'ToGrayscale',
+    'TorchSeedContext',
+    'TRANSFORM_REGISTRY',
+    'get_basic_augmentation',
+    'get_simclr_augmentation',
+    'get_strong_augmentation',
+    'validate_probability',
+    'validate_range',
+    
 ]
