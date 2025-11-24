@@ -30,6 +30,7 @@ from .grads import (
     check_grad_anomaly
 )
 from .helpers import (
+    set_random_seed,
     get_time,
     format_time,
     isolate_rng,
@@ -133,6 +134,7 @@ __all__: list[str] = [
     'check_grad_anomaly',
 
     # helpers.py
+    'set_random_seed',
     'get_time',
     'format_time',
     'isolate_rng',

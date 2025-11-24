@@ -33,12 +33,6 @@ from .progress import Progress
 class Trainer:
     """
     可选的、可复用的 PyTorch 训练协调器 (Coordinator)。
-
-    设计理念:
-        - 职责分离: Trainer 负责"如何训练"(How)，main.py 负责"训练什么"(What)
-        - 依赖注入: 通过 __init__ 接收所有已实例化的工具，最大化灵活性
-        - 模板方法: 训练逻辑可通过重写 _train_step 等方法来定制
-        - 性能优先: 默认集成高性能工具（MetricTracker, Progress, AMP）
     """
 
     # ========================================================================

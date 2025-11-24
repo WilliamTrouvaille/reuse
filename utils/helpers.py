@@ -30,6 +30,115 @@ import torch
 from loguru import logger
 
 
+def set_random_seed(
+        seed: int,
+        enable_cudnn_benchmark: bool = True,
+        deterministic: bool = False
+) -> None:
+    """
+    设置全局随机种子以确保实验可复现性。
+
+    本函数会设置 Python、NumPy、PyTorch（CPU 和 CUDA）的随机种子，
+    并根据参数配置 cuDNN 的 benchmark 和 deterministic 模式。
+
+    参数:
+        seed (int): 全局随机种子值
+        enable_cudnn_benchmark (bool): 是否启用 cuDNN 自动调优（默认: True）
+            - True: 启用 benchmark，cuDNN 会自动寻找最优卷积算法
+                   在固定输入尺寸时可提升 20-30% 性能，但会牺牲可复现性
+                   推荐场景: 生产环境、大规模训练、输入尺寸固定
+            - False: 禁用 benchmark，使用确定性算法
+                    保证完全可复现，但性能较低
+                    推荐场景: 研究对比实验、调试、需要严格复现结果
+        deterministic (bool): 是否强制使用确定性算法（默认: False）
+            - True: 强制 cuDNN 使用确定性算法（最慢但完全可复现）
+            - False: 允许使用非确定性算法（更快但可能不可复现）
+            注意: 设置为 True 时会自动禁用 benchmark
+
+    返回:
+        None
+
+    性能影响:
+        - enable_cudnn_benchmark=True: 训练速度提升 20-30%（固定输入尺寸）
+        - deterministic=True: 训练速度降低 10-20%
+
+    可复现性保证:
+        - 完全可复现: enable_cudnn_benchmark=False, deterministic=True
+        - 部分可复现: enable_cudnn_benchmark=False, deterministic=False
+        - 不保证可复现: enable_cudnn_benchmark=True（默认，推荐）
+
+    示例:
+        >>> # 场景 1: 生产环境（性能优先）
+        >>> set_random_seed(42, enable_cudnn_benchmark=True, deterministic=False)
+
+        >>> # 场景 2: 研究实验（可复现性优先）
+        >>> set_random_seed(42, enable_cudnn_benchmark=False, deterministic=True)
+
+        >>> # 场景 3: 平衡模式（推荐）
+        >>> set_random_seed(42, enable_cudnn_benchmark=True, deterministic=False)
+
+    参考:
+        - PyTorch 可复现性文档: https://pytorch.org/docs/stable/notes/randomness.html
+        - cuDNN benchmark 说明: https://pytorch.org/docs/stable/backends.html#torch.backends.cudnn.benchmark
+    """
+    # --- 1. 设置 Python 内置随机数生成器种子 ---
+    random.seed(seed)
+    logger.debug(f"Python 随机种子已设置: {seed}")
+
+    # --- 2. 设置 NumPy 随机数生成器种子 ---
+    np.random.seed(seed)
+    logger.debug(f"NumPy 随机种子已设置: {seed}")
+
+    # --- 3. 设置 PyTorch CPU 随机数生成器种子 ---
+    torch.manual_seed(seed)
+    logger.debug(f"PyTorch CPU 随机种子已设置: {seed}")
+
+    # --- 4. 设置 PyTorch CUDA 随机数生成器种子（如果 CUDA 可用）---
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  # 为所有 GPU 设置种子
+        logger.debug(f"PyTorch CUDA 随机种子已设置: {seed}（所有 GPU）")
+
+        # --- 5. 配置 cuDNN 行为 ---
+        # deterministic 模式会强制使用确定性算法，此时 benchmark 必须禁用
+        if deterministic:
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            logger.warning(
+                "cuDNN deterministic 模式已启用，benchmark 已自动禁用\n"
+                "  - 训练将完全可复现，但速度会降低 10-20%\n"
+                "  - 仅推荐在调试或严格要求可复现的实验中使用"
+            )
+        else:
+            torch.backends.cudnn.deterministic = False
+            torch.backends.cudnn.benchmark = enable_cudnn_benchmark
+
+            if enable_cudnn_benchmark:
+                logger.info(
+                    "cuDNN benchmark 已启用（推荐）\n"
+                    "  - 训练速度预计提升 20-30%（固定输入尺寸）\n"
+                    "  - 不保证完全可复现（不同运行可能有微小差异）\n"
+                    "  - 如需严格可复现，请设置 enable_cudnn_benchmark=False"
+                )
+            else:
+                logger.info(
+                    "cuDNN benchmark 已禁用\n"
+                    "  - 训练速度较慢，但可复现性更好\n"
+                    "  - 如需更快速度，请设置 enable_cudnn_benchmark=True"
+                )
+    else:
+        logger.debug("CUDA 不可用，跳过 cuDNN 配置")
+
+    # --- 6. 输出最终配置摘要 ---
+    logger.success(
+        f"全局随机种子配置完成\n"
+        f"  - 种子值: {seed}\n"
+        f"  - cuDNN benchmark: {enable_cudnn_benchmark}\n"
+        f"  - cuDNN deterministic: {deterministic}\n"
+        f"  - 可复现性级别: {'完全可复现' if deterministic else '部分可复现' if not enable_cudnn_benchmark else '不保证可复现（性能优先）'}"
+    )
+
+
 def get_time(format_str: str = "[%Y-%m-%d %H:%M:%S]") -> str:
     """
     获取格式化的当前时间。
