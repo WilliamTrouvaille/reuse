@@ -100,13 +100,16 @@ def _deep_merge_dict(base_dict: dict, override_dict: dict) -> dict:
 def load_config_from_yaml(config_path: str | None) -> dict:
     """
     加载 YAML 配置文件并返回一个字典。
+    自动加载 config/ 目录下的所有 .yaml 文件并合并。
 
     参数:
-        config_path (str | None): YAML 配置文件的路径。如果为 None，返回空字典。
+        config_path (str | None): 主 YAML 配置文件的路径。如果为 None，返回空字典。
 
     返回:
         dict: 包含配置参数的字典。如果文件不存在或解析失败，则返回空字典。
     """
+    from pathlib import Path
+
     if config_path is None:
         logger.debug("未提供配置文件路径，跳过 YAML 加载。")
         return {}
@@ -117,24 +120,41 @@ def load_config_from_yaml(config_path: str | None) -> dict:
         logger.warning(f"配置文件未找到: {resolved_path}。跳过加载。")
         return {}
 
-    logger.debug(f"尝试从 '{resolved_path}' 加载配置...")
+    # 加载主配置文件
+    logger.debug(f"尝试从 '{resolved_path}' 加载主配置...")
     try:
         with open(resolved_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)  # 使用 safe_load 防止执行任意代码
+            config = yaml.safe_load(f)
 
         if config is None:
             logger.warning(f"配置文件为空: {resolved_path}")
-            return {}
+            config = {}
 
-        logger.success(f"成功加载配置文件: {resolved_path}")
-        logger.debug(f"加载的配置内容: {config}")
-        return config
+        logger.success(f"成功加载主配置文件: {resolved_path}")
     except yaml.YAMLError as e:
         logger.error(f"解析 YAML 文件时出错: {resolved_path}\n错误详情: {e}")
         return {}
     except Exception as e:
         logger.error(f"加载配置文件时发生未知错误: {resolved_path}\n错误详情: {e}")
         return {}
+
+    # 自动加载 config/ 目录下的所有 .yaml 文件
+    config_dir = Path(resolved_path).parent / "config"
+    if config_dir.exists() and config_dir.is_dir():
+        yaml_files = sorted(config_dir.glob("*.yaml"))
+        for yaml_file in yaml_files:
+            logger.debug(f"加载额外配置文件: {yaml_file}")
+            try:
+                with open(yaml_file, 'r', encoding='utf-8') as f:
+                    extra_config = yaml.safe_load(f)
+                    if extra_config:
+                        config = _deep_merge_dict(config, extra_config)
+                        logger.success(f"已合并配置文件: {yaml_file.name}")
+            except Exception as e:
+                logger.warning(f"加载 {yaml_file.name} 失败: {e}")
+
+    logger.debug(f"最终配置内容: {config}")
+    return config
 
 
 def update_config_from_args(config_dict: dict, args_dict: dict) -> dict:

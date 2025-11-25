@@ -186,7 +186,8 @@ class Trainer:
             criterion: nn.Module,
             device: Union[str, torch.device],
             config: Any,
-            scheduler: Optional[_LRScheduler] = None
+            scheduler: Optional[_LRScheduler] = None,
+            callbacks: Optional[list] = None
     ) -> 'Trainer':
         """
         (可选) 配置驱动模式：从 config 对象自动实例化所有工具。
@@ -260,6 +261,7 @@ class Trainer:
             early_stopper=early_stop,
             notifier=notifier,
             scheduler=scheduler,
+            callbacks=callbacks,
             use_amp=config.training.get('use_amp', False),
             grad_accum_steps=config.training.get('grad_accum_steps', 1),
             max_grad_norm=config.training.get('max_grad_norm', None),

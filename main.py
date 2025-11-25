@@ -179,6 +179,18 @@ def main():
 
     logger.info(f"损失函数: CrossEntropyLoss")
 
+    # --- 1.11.5 创建 Callbacks ---
+    callbacks = []
+    if config.callbacks.timer.enabled:
+        from utils.callbacks import Timer
+        timer = Timer(
+            duration=config.callbacks.timer.duration,
+            interval=config.callbacks.timer.interval,
+            verbose=config.callbacks.timer.verbose
+        )
+        callbacks.append(timer)
+        logger.info(f"已启用 Timer callback")
+
     # --- 1.12 创建训练器 ---
     logger.info("=" * 80)
     logger.info("初始化训练器".center(80))
@@ -190,7 +202,8 @@ def main():
         criterion=criterion,
         device=device,
         config=config,
-        scheduler=scheduler
+        scheduler=scheduler,
+        callbacks=callbacks
     )
 
     # --- 1.13 开始训练 ---

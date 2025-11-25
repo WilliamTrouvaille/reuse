@@ -49,27 +49,17 @@ class Callback:
         trainer.fit(train_loader, val_loader)
 
     钩子调用顺序（典型训练流程）:
-        1. setup(trainer)                    # Trainer 初始化完成后
-        2. on_train_start(trainer)           # 训练开始
+        1. setup(trainer)                       # Trainer 初始化完成后
+        2. on_train_start(trainer)              # 训练开始
         3. FOR each epoch:
-            4. on_train_epoch_start(trainer)    # 训练 epoch 开始
-            5. FOR each batch:
-                6. on_train_batch_start(trainer, batch, batch_idx)
-                7. on_before_backward(trainer, loss)
-                8. on_after_backward(trainer)
-                9. on_before_optimizer_step(trainer, optimizer)
-                10. on_before_zero_grad(trainer, optimizer)
-                11. on_train_batch_end(trainer, outputs, batch, batch_idx)
-            12. on_train_epoch_end(trainer)      # 训练 epoch 结束
-
-            13. on_validation_epoch_start(trainer)  # 验证 epoch 开始
-            14. FOR each batch:
-                15. on_validation_batch_start(trainer, batch, batch_idx)
-                16. on_validation_batch_end(trainer, outputs, batch, batch_idx)
-            17. on_validation_epoch_end(trainer)    # 验证 epoch 结束
-
-        18. on_train_end(trainer)             # 训练结束
-        19. teardown(trainer)                 # 清理资源
+            4. on_train_epoch_start(trainer)       # 训练 epoch 开始
+            5. ... 训练循环 ...
+            6. on_train_epoch_end(trainer)         # 训练 epoch 结束
+            7. on_validation_epoch_start(trainer)  # 验证 epoch 开始
+            8. ... 验证循环 ...
+            9. on_validation_epoch_end(trainer)    # 验证 epoch 结束
+        10. on_train_end(trainer)               # 训练结束
+        11. teardown(trainer)                   # 清理资源
 
     状态持久化:
         如果回调有状态需要保存到检查点，重写以下方法：
@@ -215,7 +205,7 @@ class Callback:
         pass
 
     # ========================================================================
-    # 3. 生命周期钩子 - 训练/验证/测试阶段
+    # 3. 生命周期钩子 - 训练阶段
     # ========================================================================
 
     def on_train_start(self, trainer: "Trainer") -> None:
@@ -254,38 +244,6 @@ class Callback:
                 duration = time.time() - self.start_time
                 logger.success(f"Training completed in {duration:.2f}s")
                 self.generate_report(trainer)
-        """
-        pass
-
-    def on_validation_start(self, trainer: "Trainer") -> None:
-        """验证阶段开始时调用（整个验证流程开始）。
-
-        Args:
-            trainer: Trainer 实例
-        """
-        pass
-
-    def on_validation_end(self, trainer: "Trainer") -> None:
-        """验证阶段结束时调用（整个验证流程结束）。
-
-        Args:
-            trainer: Trainer 实例
-        """
-        pass
-
-    def on_test_start(self, trainer: "Trainer") -> None:
-        """测试阶段开始时调用。
-
-        Args:
-            trainer: Trainer 实例
-        """
-        pass
-
-    def on_test_end(self, trainer: "Trainer") -> None:
-        """测试阶段结束时调用。
-
-        Args:
-            trainer: Trainer 实例
         """
         pass
 
@@ -360,204 +318,7 @@ class Callback:
         pass
 
     # ========================================================================
-    # 5. 生命周期钩子 - Batch 级别
-    # ========================================================================
-
-    def on_train_batch_start(
-        self,
-        trainer: "Trainer",
-        batch: Any,
-        batch_idx: int
-    ) -> None:
-        """训练 batch 开始时调用（在前向传播之前）。
-
-        Args:
-            trainer: Trainer 实例
-            batch: 当前批次的数据（通常是 (inputs, targets)）
-            batch_idx: 当前批次的索引（从 0 开始）
-
-        示例:
-            def on_train_batch_start(self, trainer, batch, batch_idx) -> None:
-                if batch_idx % 100 == 0:
-                    logger.debug(f"Processing batch {batch_idx}")
-        """
-        pass
-
-    def on_train_batch_end(
-        self,
-        trainer: "Trainer",
-        outputs: Any,
-        batch: Any,
-        batch_idx: int
-    ) -> None:
-        """训练 batch 结束时调用（在优化器步骤之后）。
-
-        Args:
-            trainer: Trainer 实例
-            outputs: 训练步骤的输出（包含 loss、outputs、targets）
-            batch: 当前批次的数据
-            batch_idx: 当前批次的索引
-
-        示例:
-            def on_train_batch_end(self, trainer, outputs, batch, batch_idx) -> None:
-                # 更新进度条
-                if hasattr(self, 'progress_bar'):
-                    self.progress_bar.update({'loss': outputs['loss'].item()})
-        """
-        pass
-
-    def on_validation_batch_start(
-        self,
-        trainer: "Trainer",
-        batch: Any,
-        batch_idx: int
-    ) -> None:
-        """验证 batch 开始时调用。
-
-        Args:
-            trainer: Trainer 实例
-            batch: 当前批次的数据
-            batch_idx: 当前批次的索引
-        """
-        pass
-
-    def on_validation_batch_end(
-        self,
-        trainer: "Trainer",
-        outputs: Any,
-        batch: Any,
-        batch_idx: int
-    ) -> None:
-        """验证 batch 结束时调用。
-
-        Args:
-            trainer: Trainer 实例
-            outputs: 验证步骤的输出
-            batch: 当前批次的数据
-            batch_idx: 当前批次的索引
-        """
-        pass
-
-    # ========================================================================
-    # 6. 生命周期钩子 - 梯度和优化器
-    # ========================================================================
-
-    def on_before_backward(self, trainer: "Trainer", loss: Any) -> None:
-        """在 loss.backward() 之前调用。
-
-        适合执行：
-        - 记录损失值
-        - 检查损失是否为 NaN/Inf
-
-        Args:
-            trainer: Trainer 实例
-            loss: 当前 batch 的损失张量
-
-        示例:
-            def on_before_backward(self, trainer, loss) -> None:
-                if torch.isnan(loss) or torch.isinf(loss):
-                    logger.error(f"Invalid loss detected: {loss.item()}")
-                    raise ValueError("Training diverged")
-        """
-        pass
-
-    def on_after_backward(self, trainer: "Trainer") -> None:
-        """在 loss.backward() 之后、optimizer.step() 之前调用。
-
-        适合执行：
-        - 监控梯度统计（范数、分布等）
-        - 自定义梯度处理
-
-        Args:
-            trainer: Trainer 实例
-
-        示例:
-            def on_after_backward(self, trainer) -> None:
-                # 计算梯度范数
-                total_norm = 0.0
-                for p in trainer.model.parameters():
-                    if p.grad is not None:
-                        total_norm += p.grad.data.norm(2).item() ** 2
-                total_norm = total_norm ** 0.5
-                self.grad_norms.append(total_norm)
-        """
-        pass
-
-    def on_before_optimizer_step(self, trainer: "Trainer", optimizer: Any) -> None:
-        """在 optimizer.step() 之前调用（梯度裁剪之后）。
-
-        Args:
-            trainer: Trainer 实例
-            optimizer: 优化器实例
-
-        示例:
-            def on_before_optimizer_step(self, trainer, optimizer) -> None:
-                # 记录当前学习率
-                current_lr = optimizer.param_groups[0]['lr']
-                self.lr_history.append(current_lr)
-        """
-        pass
-
-    def on_before_zero_grad(self, trainer: "Trainer", optimizer: Any) -> None:
-        """在 optimizer.zero_grad() 之前调用。
-
-        Args:
-            trainer: Trainer 实例
-            optimizer: 优化器实例
-        """
-        pass
-
-    # ========================================================================
-    # 7. 生命周期钩子 - 检查点
-    # ========================================================================
-
-    def on_save_checkpoint(
-        self,
-        trainer: "Trainer",
-        checkpoint: dict[str, Any]
-    ) -> None:
-        """保存检查点时调用（在写入磁盘之前）。
-
-        可以在此钩子中向检查点添加额外的信息。
-
-        Args:
-            trainer: Trainer 实例
-            checkpoint: 即将保存的检查点字典，可以修改它
-
-        示例:
-            def on_save_checkpoint(self, trainer, checkpoint) -> None:
-                # 添加自定义信息到检查点
-                checkpoint['custom_data'] = {
-                    'best_epoch': self.best_epoch,
-                    'training_time': self.total_time
-                }
-        """
-        pass
-
-    def on_load_checkpoint(
-        self,
-        trainer: "Trainer",
-        checkpoint: dict[str, Any]
-    ) -> None:
-        """加载检查点时调用（在恢复状态之后）。
-
-        可以在此钩子中从检查点读取额外的信息。
-
-        Args:
-            trainer: Trainer 实例
-            checkpoint: 已加载的检查点字典
-
-        示例:
-            def on_load_checkpoint(self, trainer, checkpoint) -> None:
-                # 从检查点读取自定义信息
-                custom_data = checkpoint.get('custom_data', {})
-                self.best_epoch = custom_data.get('best_epoch', 0)
-                self.total_time = custom_data.get('training_time', 0.0)
-        """
-        pass
-
-    # ========================================================================
-    # 8. 生命周期钩子 - 异常处理
+    # 5. 生命周期钩子 - 异常处理
     # ========================================================================
 
     def on_exception(self, trainer: "Trainer", exception: BaseException) -> None:
@@ -586,7 +347,7 @@ class Callback:
         pass
 
     # ========================================================================
-    # 9. 字符串表示
+    # 6. 字符串表示
     # ========================================================================
 
     def __repr__(self) -> str:

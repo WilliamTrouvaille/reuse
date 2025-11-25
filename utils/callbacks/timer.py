@@ -41,7 +41,10 @@ class Stage:
 # 2. Timer 类
 # ========================================================================
 
-class Timer:
+from utils.callbacks.base import Callback
+
+
+class Timer(Callback):
     """训练计时器 - 跟踪训练、验证、测试各阶段的耗时，并支持时间限制功能。
 
     功能特性:
@@ -61,17 +64,12 @@ class Timer:
         # 或使用字典
         timer = Timer(duration=dict(weeks=4, days=2))
 
-        # 在训练循环中使用
-        timer.on_train_start()
-        # ... 训练代码 ...
-        if timer.should_stop():
-            logger.info("训练时间已到，停止训练")
-            break
-        timer.on_train_end()
+        # 作为 Callback 使用
+        trainer = Trainer(..., callbacks=[timer])
+        trainer.fit(train_loader, val_loader)
 
         # 查询各阶段耗时（秒）
         train_time = timer.time_elapsed("training")
-        val_time = timer.time_elapsed("validating")
 
     Args:
         duration: 训练时间上限，支持三种格式:
@@ -201,57 +199,27 @@ class Timer:
         return None
 
     # ========================================================================
-    # 4. 生命周期回调方法（供外部训练循环调用）
+    # 4. Callback 钩子实现
     # ========================================================================
 
-    def on_train_start(self) -> None:
+    def on_train_start(self, trainer) -> None:
         """训练开始时调用 - 记录训练开始时间"""
         self._start_time[Stage.TRAINING] = time.monotonic()
         if self._verbose:
             logger.info("计时器: 训练阶段开始")
 
-    def on_train_end(self) -> None:
+    def on_train_end(self, trainer) -> None:
         """训练结束时调用 - 记录训练结束时间"""
         self._end_time[Stage.TRAINING] = time.monotonic()
         if self._verbose:
             elapsed = timedelta(seconds=int(self.time_elapsed(Stage.TRAINING)))
             logger.info(f"计时器: 训练阶段结束，总耗时 {elapsed}")
 
-    def on_validation_start(self) -> None:
-        """验证开始时调用 - 记录验证开始时间"""
-        self._start_time[Stage.VALIDATING] = time.monotonic()
-
-    def on_validation_end(self) -> None:
-        """验证结束时调用 - 记录验证结束时间"""
-        self._end_time[Stage.VALIDATING] = time.monotonic()
-
-    def on_test_start(self) -> None:
-        """测试开始时调用 - 记录测试开始时间"""
-        self._start_time[Stage.TESTING] = time.monotonic()
-
-    def on_test_end(self) -> None:
-        """测试结束时调用 - 记录测试结束时间"""
-        self._end_time[Stage.TESTING] = time.monotonic()
-
-    def on_train_batch_end(self) -> bool:
-        """每个训练批次结束时调用 - 检查是否应该停止训练
-
-        Returns:
-            如果应该停止训练返回 True，否则返回 False
-        """
-        if self._interval != Interval.STEP or self._duration is None:
-            return False
-        return self._check_time_remaining()
-
-    def on_train_epoch_end(self) -> bool:
-        """每个训练轮次结束时调用 - 检查是否应该停止训练
-
-        Returns:
-            如果应该停止训练返回 True，否则返回 False
-        """
-        if self._interval != Interval.EPOCH or self._duration is None:
-            return False
-        return self._check_time_remaining()
+    def on_train_epoch_end(self, trainer) -> None:
+        """每个训练轮次结束时调用 - 检查是否应该停止训练"""
+        if self._interval == Interval.EPOCH and self._duration is not None:
+            if self._check_time_remaining():
+                trainer._should_stop = True
 
     # ========================================================================
     # 5. 辅助方法

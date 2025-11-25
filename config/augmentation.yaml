@@ -1,0 +1,257 @@
+# ============================================================
+# 数据增强配置 (Augmentation)
+# ============================================================
+# 本配置文件用于 utils/augmentation 模块
+# 提供多种预定义策略和自定义增强管道配置
+optimizer:
+    # 是否启用数据增强（全局开关）
+    # 禁用后将跳过所有数据增强，仅使用原始数据
+    enabled: true
+
+    # 增强策略选择: 'basic', 'simclr', 'strong', 'custom'
+    # 依赖: utils.augmentation.pipeline
+    #   - 'basic': 基础增强策略（随机裁剪、翻转、轻度颜色抖动）
+    #              适用场景: 标准分类任务、快速实验
+    #              性能影响: 轻微
+    #   - 'simclr': SimCLR 风格对比学习增强（强烈颜色抖动、高斯模糊）
+    #               适用场景: 自监督学习、对比学习任务
+    #               性能影响: 中等
+    #   - 'strong': 强增强策略（包含噪声、遮挡、强变换）
+    #               适用场景: 数据量少、需要大量数据增强的场景
+    #               性能影响: 较大
+    #   - 'custom': 自定义增强管道（使用下方 custom_transforms 配置）
+    #               适用场景: 特殊需求、精细调优
+    strategy: "basic"
+
+    # 自定义增强管道配置（仅当 strategy='custom' 时生效）
+    # 依赖: utils.augmentation 模块中的各个变换类
+    custom_transforms:
+        # ========================================================
+        # 几何变换 (Geometric Transforms)
+        # ========================================================
+
+        # 随机裁剪并调整大小
+        # 依赖: utils.augmentation.geometric.RandomCropAndResize
+        random_crop_and_resize:
+            # 是否启用此变换
+            enabled: true
+            # 输出图像尺寸 [height, width]
+            size: [32, 32]
+            # 裁剪区域面积相对于原图的比例范围 [min, max]
+            # 推荐: [0.08, 1.0] (标准 ImageNet 设置)
+            scale: [0.08, 1.0]
+            # 裁剪区域的宽高比范围 [min, max]
+            # 推荐: [0.75, 1.33] (3/4 到 4/3)
+            ratio: [0.75, 1.33]
+
+        # 随机水平翻转
+        # 依赖: utils.augmentation.geometric.RandomHorizontalFlip
+        random_horizontal_flip:
+            enabled: true
+            # 翻转概率
+            # 推荐: 0.5 (50% 概率翻转)
+            p: 0.5
+
+        # 随机旋转
+        # 依赖: utils.augmentation.geometric.RandomRotation
+        random_rotation:
+            # 默认禁用，因为分类任务通常不需要旋转
+            enabled: false
+            # 旋转角度范围 [-degrees, +degrees]
+            # 推荐: 15（轻度旋转）到 30（中度旋转）
+            # 注意: 过大的旋转可能导致信息丢失
+            degrees: 15
+
+        # 中心裁剪
+        # 依赖: utils.augmentation.geometric.CenterCrop
+        center_crop:
+            # 通常用于测试集，训练集较少使用
+            enabled: false
+            # 裁剪尺寸 [height, width]
+            size: [32, 32]
+
+        # ========================================================
+        # 颜色变换 (Color Transforms)
+        # ========================================================
+
+        # 颜色抖动（亮度、对比度、饱和度、色调的组合变换）
+        # 依赖: utils.augmentation.color.ColorJitter
+        color_jitter:
+            enabled: true
+            # 亮度抖动强度 [1-brightness, 1+brightness]
+            # 推荐: 0.4 (基础增强) 到 0.8 (SimCLR)
+            brightness: 0.4
+            # 对比度抖动强度 [1-contrast, 1+contrast]
+            contrast: 0.4
+            # 饱和度抖动强度 [1-saturation, 1+saturation]
+            saturation: 0.4
+            # 色调抖动强度 [-hue, +hue]（取值范围 [0, 0.5]）
+            # 推荐: 0.1 (基础增强) 到 0.2 (强增强)
+            hue: 0.1
+
+        # 随机亮度调整
+        # 依赖: utils.augmentation.color.RandomBrightness
+        random_brightness:
+            # 通常使用 ColorJitter 代替单独的亮度调整
+            enabled: false
+            brightness_factor: 0.4
+
+        # 随机对比度调整
+        # 依赖: utils.augmentation.color.RandomContrast
+        random_contrast:
+            enabled: false
+            contrast_factor: 0.4
+
+        # 随机饱和度调整
+        # 依赖: utils.augmentation.color.RandomSaturation
+        random_saturation:
+            enabled: false
+            saturation_factor: 0.4
+
+        # 随机色调调整
+        # 依赖: utils.augmentation.color.RandomHue
+        random_hue:
+            enabled: false
+            hue_factor: 0.1
+
+        # 随机转换为灰度图
+        # 依赖: utils.augmentation.color.ToGrayscale
+        to_grayscale:
+            # 适用场景: 对比学习、颜色不变性学习
+            enabled: false
+            # 转换概率
+            p: 0.2
+
+        # ========================================================
+        # 滤波器 (Filters)
+        # ========================================================
+
+        # 高斯模糊
+        # 依赖: utils.augmentation.filter.GaussianBlur
+        gaussian_blur:
+            # 适用场景: SimCLR 对比学习、减少高频噪声
+            enabled: false
+            # 高斯核大小（奇数）
+            # 推荐: 3 (轻度模糊) 到 7 (中度模糊)
+            kernel_size: 3
+            # 高斯核标准差范围 [min, max]
+            # 推荐: [0.1, 2.0]
+            sigma: [0.1, 2.0]
+
+        # Sobel 边缘检测滤波器
+        # 依赖: utils.augmentation.filter.SobelFilter
+        sobel_filter:
+            # 适用场景: 边缘特征学习、特殊任务
+            # 注意: 通常不用于标准分类任务
+            enabled: false
+
+        # ========================================================
+        # 噪声 (Noise)
+        # ========================================================
+
+        # 高斯噪声
+        # 依赖: utils.augmentation.noise.GaussianNoise
+        gaussian_noise:
+            # 适用场景: 提升鲁棒性、模拟传感器噪声
+            enabled: false
+            # 噪声均值
+            mean: 0.0
+            # 噪声标准差
+            # 推荐: 0.01 (轻度噪声) 到 0.1 (中度噪声)
+            # 注意: 过大会严重破坏图像信息
+            std: 0.05
+
+        # ========================================================
+        # 遮挡 (Occlusion)
+        # ========================================================
+
+        # 随机擦除（Random Erasing）
+        # 依赖: utils.augmentation.occlusion.RandomErasing
+        random_erasing:
+            # 适用场景: 提升遮挡鲁棒性、防止过拟合
+            # 论文: Random Erasing Data Augmentation (AAAI 2020)
+            enabled: false
+            # 应用概率
+            p: 0.5
+            # 擦除区域面积相对于图像的比例范围 [min, max]
+            # 推荐: [0.02, 0.33]
+            scale: [0.02, 0.33]
+            # 擦除区域的宽高比范围 [min, max]
+            # 推荐: [0.3, 3.3]
+            ratio: [0.3, 3.3]
+
+        # Cutout（裁剪遮挡）
+        # 依赖: utils.augmentation.occlusion.CutOut
+        cutout:
+            # 适用场景: 分类任务、防止过拟合
+            # 论文: Improved Regularization of Convolutional Neural Networks with Cutout (2017)
+            enabled: false
+            # 遮挡的孔洞数量
+            n_holes: 1
+            # 每个孔洞的边长（像素）
+            # 推荐: 图像尺寸的 1/4 到 1/2
+            # CIFAR-10 (32x32): 16
+            # ImageNet (224x224): 56
+            length: 16
+
+    # ========================================================
+    # 预定义策略的覆盖参数（可选）
+    # ========================================================
+    # 这些参数允许在使用预定义策略时覆盖默认配置
+    # 仅当 strategy 为 'basic', 'simclr', 'strong' 时生效
+    strategy_overrides:
+        # SimCLR 策略参数覆盖
+        # 依赖: utils.augmentation.pipeline.get_simclr_augmentation
+        simclr:
+            # 颜色抖动强度（0.0 到 1.0）
+            # 默认: 0.8
+            color_jitter_strength: 0.8
+            # 高斯模糊应用概率
+            # 默认: 0.5
+            gaussian_blur_p: 0.5
+            # 输出图像尺寸
+            # 默认: [32, 32]
+            image_size: [32, 32]
+
+        # 基础策略参数覆盖
+        # 依赖: utils.augmentation.pipeline.get_basic_augmentation
+        basic:
+            # 水平翻转概率
+            # 默认: 0.5
+            horizontal_flip_p: 0.5
+            # 颜色抖动强度
+            # 默认: 0.4
+            color_jitter_strength: 0.4
+
+        # 强增强策略参数覆盖
+        # 依赖: utils.augmentation.pipeline.get_strong_augmentation
+        strong:
+            # 随机擦除概率
+            # 默认: 0.5
+            random_erasing_p: 0.5
+            # Cutout 孔洞数量
+            # 默认: 1
+            cutout_n_holes: 1
+            # Cutout 孔洞边长
+            # 默认: 16
+            cutout_length: 16
+
+    # ========================================================
+    # 性能优化配置（高级）
+    # ========================================================
+    performance:
+        # 是否使用 CUDA 加速（如果可用）
+        # 依赖: torch.cuda.is_available()
+        # 注意: 并非所有变换都支持 CUDA 加速
+        use_cuda: false
+
+        # 数据增强的并行度
+        # 依赖: DataLoader 的 num_workers
+        # 推荐: 与 dataloader.num_workers 保持一致
+        # 注意: 过高可能导致内存不足
+        num_workers: 4
+
+        # 是否缓存预处理结果（实验性功能）
+        # 适用场景: 数据集较小、增强策略固定
+        # 注意: 会占用额外内存
+        cache_augmented_data: false
